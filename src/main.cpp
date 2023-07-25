@@ -1,275 +1,188 @@
-#include "html_code.h"
-// #include <WebServer.h>
-#include "esp_bt_main.h"
-#include "esp_bt_device.h"
+/*
+	Based on Neil Kolban example for IDF: https://github.com/nkolban/esp32-snippets/blob/master/cpp_utils/tests/BLE%20Tests/SampleServer.cpp
+	Ported to Arduino ESP32 by Evandro Copercini
+	updates by chegewara
+*/
 
-#include "parser.h"
+#include <BLEDevice.h>
+#include <BLEUtils.h>
+#include <BLEServer.h>
+#include <BLE2902.h>
 
-const char *ssid = "MAIN_NODE";
-const char *pass = "qwertyqwerty";
+#include <HardwareSerial.h>
 
-// WebServer server(80); // Default HTTP port
+// See the following for generating UUIDs:
+// https://www.uuidgenerator.net/
 
-// String header;
+#define SERVICE_UUID "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
+#define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 
-// String output_led_state = "off";
+BLEServer *pServer;
+BLEService *pService;
+BLECharacteristic *pTxCharacteristic;
 
-// IPAddress local_ip(192, 168, 0, 111);
-// IPAddress local_gw(192, 168, 0, 1);
-// IPAddress local_nm(255, 255, 255, 0);
-
-int LEDB = LOW;
-int counter = 0;
-
-// void base() {
-// 	server.send(200, "text.html", page);
-// }
-
-// void LEDBfunct() {
-// 	LEDB = !LEDB;
-// 	digitalWrite(LED_BUILTIN, LEDB);
-// 	++counter;
-// 	String str = "ON";
-// 	if (LEDB == LOW) str == "OFF";
-// 	server.send(200, "text/html", str);
-// }
-
-// void zeroFunct() {
-// 	counter = 0;
-// 	String str = String(counter);
-// 	server.send(200, "text/html", str);
-// }
-
-// void countFunct() {
-// 	String str = String(counter);
-// 	server.send(200, "text/plain", str);
-// }
-
-unsigned long previousMillisReconnect;
-bool SlaveConnected;
-int recatt = 0;
-
-// BT: Bluetooth availabilty check
-#if !defined(CONFIG_BT_SPP_ENABLED)
-#error Serial Bluetooth not available or not enabled. It is only available for the ESP32 chip.
-#endif
-
-String myName = "ESP32-BT-Master";
-String slaveName = "ESP32-BT-Slave";
-String MACadd = "C8:F0:9E:F8:03:E2";
-uint8_t address[6] = {0xC8, 0xF0, 0x9E, 0xF8, 0x03, 0xE2};
-
-BluetoothSerial SerialBT;
+bool deviceConnected = false;
+bool oldDeviceConnected = false;
+uint8_t txValue = 0;
 
 static constexpr uint8_t RELAY_PIN = 16;
 uint8_t hum_min = 10;
 uint8_t hum_max = 70;
-uint8_t curr_hum = 50;
 void compare_hum();
 
-struct ringbuf_t* BT_rb;
-struct ringbuf_t* serial_rb;
-Parser parser;
+uint8_t curr_hum_value = 50;
+uint8_t curr_temp_value = 15;
+std::string BLE_reply;
 
-void Bt_Status(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
+class MyServerCallbacks : public BLEServerCallbacks
 {
-	if (event == ESP_SPP_OPEN_EVT)
+	void onConnect(BLEServer *pServer)
 	{
-		Serial.println("Client Connected");
-		SlaveConnected = true;
-		recatt = 0;
+		deviceConnected = true;
+		BLEDevice::startAdvertising();
+	};
+
+	void onDisconnect(BLEServer *pServer)
+	{
+		deviceConnected = false;
 	}
-	else if (event == ESP_SPP_CLOSE_EVT)
-	{
-		Serial.println("Client Disconnected");
-		SlaveConnected = false;
-	}
-}
+};
 
-void SlaveConnect()
+class MyCallbacks : public BLECharacteristicCallbacks
 {
-	Serial.println("Function BT connection executed");
-	Serial.printf("Connecting to slave BT device named \"%s\" and MAC address \"%s\" is started.\n", slaveName.c_str(), MACadd.c_str());
-	SerialBT.connect(address);
-}
-
-void printDeviceAddress()
-{
-	const uint8_t *point = esp_bt_dev_get_address();
-	for (int i = 0; i < 6; i++)
+	void onWrite(BLECharacteristic *pCharacteristic)
 	{
-		char str[3];
-		sprintf(str, "%02X", (int)point[i]);
-		Serial.print(str);
-		if (i < 5)
+		std::string rxValue = pCharacteristic->getValue();
+
+		if (rxValue.length() > 0)
 		{
-			Serial.print(":");
+			Serial.println("*********");
+			Serial.print("Received Value: ");
+
+			// Parse input from PC
+			auto PC_input_pos = rxValue.find("hum");
+
+			if (PC_input_pos == std::string::npos) {
+				// TODO Handler the error
+			}
+			else {
+				// TODO Add checks
+				hum_min = std::stoi(rxValue.substr(PC_input_pos + 4, 2));
+				hum_max = std::stoi(rxValue.substr(PC_input_pos + 7, 2));
+				BLE_reply += "New humidity border values is " + std::to_string(hum_min) + " and " + std::to_string(hum_max) + '\n';
+				Serial.print(BLE_reply.c_str());
+				Serial.println("*********");
+				return;
+			}
+
+			// TODO Assume that the message arrives entirely in one package!
+
+			// Parse hum and temp values
+			// TODO Try to find '.' to locate the mantissa of the float values or just send float
+			std::string hum_str = "Humidity: ";
+			auto pos = rxValue.find(hum_str);
+
+			if (pos == std::string::npos) {
+				// TODO Handler error
+			}
+			else {
+				// TODO Add check for digit
+				curr_hum_value = std::stoi(rxValue.substr(pos + hum_str.size(), 2));
+			}
+
+			std::string temp_str = "Temperature: ";
+			pos = rxValue.find(temp_str);
+
+			if (pos == std::string::npos) {
+				// TODO Handler error
+			}
+			else {
+				curr_temp_value = std::stoi(rxValue.substr(pos + temp_str.size(), 2));
+			}
+
+			BLE_reply = rxValue;
+			Serial.printf("%s\n", rxValue.c_str());
+			// Serial.printf("Readed hum: %d and readed temp: %d\n", curr_hum_value, curr_temp_value);
+			// for (int i = 0; i < rxValue.length(); i++)
+			// 	Serial.print(rxValue[i]);
+
+			Serial.println("*********");
 		}
 	}
-}
+
+	void onRead(BLECharacteristic* pCharacteristic) {
+		pCharacteristic->setValue(BLE_reply);
+	}
+};
 
 void setup()
 {
 	Serial.begin(115200);
+	Serial.println("Starting BLE work!");
 
+	BLEDevice::init("ESP-32-BLE-Server");
+	pServer = BLEDevice::createServer();
+	pServer->setCallbacks(new MyServerCallbacks());
 
-	// Host WiFi
-	// WiFi.mode(WIFI_AP);
-	// delay(1000);
-	// WiFi.softAP(ssid, pass);
-	// WiFi.softAPConfig(local_ip, local_gw, local_nm);
+	pService = pServer->createService(SERVICE_UUID);
+	pTxCharacteristic = pService->createCharacteristic(
+		CHARACTERISTIC_UUID,
+		BLECharacteristic::PROPERTY_READ |
+			BLECharacteristic::PROPERTY_WRITE);
 
-	// Serial.print("IP Address");
-	// Serial.println(local_ip);
+	pTxCharacteristic->setValue("Hello World says Neil");
+	pTxCharacteristic->setCallbacks(new MyCallbacks());
+	pTxCharacteristic->addDescriptor(new BLE2902());
 
-	// server.begin();
-	// server.on("/", base);
-	// server.on("/LEDBurl", LEDBfunct);
-	// server.on("/zeroUrl", zeroFunct);
-	// server.on("/countUrl", countFunct);
-
-	SlaveConnected = false;
-
-	SerialBT.register_callback(Bt_Status);
-	SerialBT.begin(myName, true);
-
-	printDeviceAddress();
-	
-	Serial.printf("The device \"%s\" started in master mode, make sure slave BT device is on!\n", myName.c_str());
-	SlaveConnect();
+	pService->start();
+	// BLEAdvertising *pAdvertising = pServer->getAdvertising();  // this still is working for backward compatibility
+	BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+	pAdvertising->addServiceUUID(SERVICE_UUID);
+	// pAdvertising->setScanResponse(false);
+	pAdvertising->setScanResponse(true);
+	pAdvertising->setMinPreferred(0x06); // functions that help with iPhone connections issue
+	pAdvertising->setMinPreferred(0x12);
+	BLEDevice::startAdvertising();
+	Serial.println("Characteristic defined! Now you can read it in your phone!");
 }
 
 void loop()
 {
-	if (!SlaveConnected)
+	// if (deviceConnected)
+	// {
+	// 	pTxCharacteristic->setValue((uint8_t*)test_reply, strlen(test_reply));
+	// 	pTxCharacteristic->notify();
+	// 	txValue++;
+	// 	delay(10); // bluetooth stack will go into congestion, if too many packets are sent
+	// }
+
+	// disconnecting
+	if (!deviceConnected && oldDeviceConnected)
 	{
-		if (millis() - previousMillisReconnect >= 10000)
-		{
-			previousMillisReconnect = millis();
-			recatt++;
-			Serial.print("Trying to reconnect. Attempt No.: ");
-			Serial.println(recatt);
-			Serial.println("Stopping Bluetooth...");
-			SerialBT.end();
-			Serial.println("Bluetooth stopped !");
-			Serial.println("Starting Bluetooth...");
-			SerialBT.begin(myName, true);
-			Serial.printf("The device \"%s\" started in master mode, make sure slave BT device is on!\n", myName.c_str());
-			SlaveConnect();
-		}
+		delay(500);					 // give the bluetooth stack the chance to get things ready
+		pServer->startAdvertising(); // restart advertising
+		Serial.println("start advertising");
+		oldDeviceConnected = deviceConnected;
+	}
+	// connecting
+	if (deviceConnected && !oldDeviceConnected)
+	{
+		// do stuff here on connecting
+		oldDeviceConnected = deviceConnected;
 	}
 
-	if (Serial.available())
-	{
-		char ch = Serial.read();
-		ringbuf_memcpy_into(serial_rb, &ch, 1);
-		SerialBT.write(ch);
-	}
-	if (SerialBT.available())
-	{
-		char ch = SerialBT.read();
-		ringbuf_memcpy_into(BT_rb, &ch, 1);
-		Serial.write(ch);
-	}
 
-	parser.parse_BT(curr_hum);
-	parser.parse_serial();
 
 	compare_hum();
-
-	// server.handleClient();
-
-	// WiFiClient client = server.available(); // прослушка входящих клиентов
-	// if (client)
-	// {								   // Если подключается новый клиент,
-	// 	Serial.println("New Client."); // выводим сообщение
-	// 	String currentLine = "";
-	// 	while (client.connected())
-	// 	{ // цикл, пока есть соединение клиента
-	// 		if (client.available())
-	// 		{							// если от клиента поступают данные,
-	// 			char c = client.read(); // читаем байт, затем
-	// 			Serial.write(c);		// выводим на экран
-	// 			header += c;
-	// 			if (c == '\n')
-	// 			{ // если байт является переводом строки
-	// 				// если пустая строка, мы получили два символа перевода строки
-	// 				// значит это конец HTTP-запроса, формируем ответ сервера:
-	// 				if (currentLine.length() == 0)
-	// 				{
-	// 					// HTTP заголовки начинаются с кода ответа (напр., HTTP / 1.1 200 OK)
-	// 					// и content-type, затем пустая строка:
-	// 					client.println("HTTP/1.1 200 OK");
-	// 					client.println("Content-type:text/html");
-	// 					client.println("Connection: close");
-	// 					client.println();
-
-	// 					// Включаем или выключаем светодиоды
-	// 					if (header.indexOf("GET /26/on") >= 0)
-	// 					{
-	// 						Serial.println("GPIO 26 on");
-	// 						output_led_state = "on";
-	// 						digitalWrite(LED_BUILTIN, HIGH);
-	// 					}
-	// 					else if (header.indexOf("GET /26/off") >= 0)
-	// 					{
-	// 						Serial.println("GPIO 26 off");
-	// 						output_led_state = "off";
-	// 						digitalWrite(LED_BUILTIN, LOW);
-	// 					}
-	// 					// Формируем веб-страницу на сервере
-	// 					// client.println("<!DOCTYPE html><html>");
-	// 					// client.println("<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
-	// 					// client.println("<link rel=\"icon\" href=\"data:,\">");
-	// 					// // CSS для кнопок
-	// 					// // можете менять под свои нужды
-	// 					// client.println("<style>html { font-family: Helvetica; display: inline-block; margin: 0px auto; text-align: center;}");
-	// 					// client.println(".button { background-color: #4CAF50; border:  none; color: white; padding: 16px 40px;");
-	// 					// client.println("text-decoration: none; font-size: 30px; margin: 2px; cursor: pointer;}");
-	// 					// client.println(".button2 {background-color:#555555;}</style></head>");
-	// 					// client.println("<body><h1>ESP32 Web Server</h1>");
-	// 					// // Выводим текущее состояние кнопок
-	// 					// client.println("<p>GPIO 26 - State " + output_led_state + "</p>");
-	// 					// Если output26State сейчас off, то выводим надпись ON
-	// 					// if (output_led_state == "off")
-	// 					// {
-	// 					// 	client.println("<p><a href=\"/26/on\"><button class=\"button\">ON</button></a></p>");
-	// 					// }
-	// 					// else
-	// 					// {
-	// 					// 	client.println("<p><a href=\"/26/off\"><button class=\"button button2\">OFF</button></a></p>");
-	// 					// }
-	// 					// client.println("</body></html>");
-	// 					// HTTP-ответ завершается пустой строкой
-	// 					// client.println();
-	// 					break;
-	// 				}
-	// 				else
-	// 				{ // если получили новую строку, очищаем currentLine
-	// 					currentLine = "";
-	// 				}
-	// 			}
-	// 			else if (c != '\r')
-	// 			{					  // Если получили что-то ещё кроме возврата строки,
-	// 				currentLine += c; // добавляем в конец currentLine
-	// 			}
-	// 		}
-	// 	}
-	// 	// Очистим переменную
-	// 	header = "";
-	// 	// Закрываем соединение
-	// 	client.stop();
-	// 	Serial.println("Client disconnected.");
-	// 	Serial.println("");
-	// }
+	delay(1000);
 }
 
 void compare_hum() {
-	if (curr_hum > 80) {
+	if (curr_hum_value > 80) {
 		Serial.println("ALARM!!!");
 	}
 
-	if (curr_hum > hum_max or curr_hum < hum_min) {
+	if (curr_hum_value > hum_max or curr_hum_value < hum_min) {
 		pinMode(RELAY_PIN, OUTPUT);
 		digitalWrite(RELAY_PIN, LOW);
 	}
