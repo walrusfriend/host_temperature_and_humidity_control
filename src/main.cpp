@@ -1,9 +1,3 @@
-/*
-	Based on Neil Kolban example for IDF: https://github.com/nkolban/esp32-snippets/blob/master/cpp_utils/tests/BLE%20Tests/SampleServer.cpp
-	Ported to Arduino ESP32 by Evandro Copercini
-	updates by chegewara
-*/
-
 #include <BLEDevice.h>
 #include <BLEUtils.h>
 #include <BLEServer.h>
@@ -14,12 +8,20 @@
 // See the following for generating UUIDs:
 // https://www.uuidgenerator.net/
 
+/**
+ * TODO: 
+ * - Messages from phone dublicates for every 'read' operation
+ * - Add check for all!
+ * - Replace delay in loop func to interrupt handler behaviour
+*/
+
 #define SERVICE_UUID "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
-#define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+#define TO_PHONE_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+#define TO_SENSOR_CHARACTERISTIC_UUID "bea03c8c-2cc5-11ee-be56-0242ac120002"
 
 BLEServer *pServer;
-BLEService *pService;
-BLECharacteristic *pTxCharacteristic;
+BLECharacteristic *p_to_phone_characteristic;
+BLECharacteristic *p_to_sensor_characteristic;
 
 bool deviceConnected = false;
 bool oldDeviceConnected = false;
@@ -33,6 +35,9 @@ void compare_hum();
 uint8_t curr_hum_value = 50;
 uint8_t curr_temp_value = 15;
 std::string BLE_reply;
+std::string BLE_reply_to_sensor;
+
+const uint8_t HUMIDITY_SENSOR_ACCURACY = 2;
 
 class MyServerCallbacks : public BLEServerCallbacks
 {
@@ -87,7 +92,7 @@ class MyCallbacks : public BLECharacteristicCallbacks
 			}
 			else {
 				// TODO Add check for digit
-				curr_hum_value = std::stoi(rxValue.substr(pos + hum_str.size(), 2));
+				curr_hum_value = std::stoi(rxValue.substr(pos + hum_str.size(), 2)) - 1;
 			}
 
 			std::string temp_str = "Temperature: ";
@@ -107,11 +112,35 @@ class MyCallbacks : public BLECharacteristicCallbacks
 			// 	Serial.print(rxValue[i]);
 
 			Serial.println("*********");
+
+			// Calculate border values
+			uint8_t step_value = (hum_max - hum_min) * 0.2;
+
+			if (step_value < HUMIDITY_SENSOR_ACCURACY) 
+				step_value = HUMIDITY_SENSOR_ACCURACY;
+			// Serial.printf("DEBUG: step_value: %d\n", step_value);
+
+			if ((curr_hum_value < hum_min + step_value) or (curr_hum_value > hum_max - step_value)) {
+				BLE_reply_to_sensor = "S5\n";
+			}
+			else {
+				BLE_reply_to_sensor = "S30\n";
+			}
+			// Serial.printf("DEBUG: reply %s\n", BLE_reply_to_sensor.c_str());
 		}
 	}
 
 	void onRead(BLECharacteristic* pCharacteristic) {
 		pCharacteristic->setValue(BLE_reply);
+		BLE_reply.clear();
+	}
+};
+
+class MyToSensorCallbacks : public BLECharacteristicCallbacks
+{
+	void onRead(BLECharacteristic* pCharacteristic) {
+		pCharacteristic->setValue(BLE_reply_to_sensor);
+		BLE_reply_to_sensor.clear();
 	}
 };
 
@@ -124,17 +153,25 @@ void setup()
 	pServer = BLEDevice::createServer();
 	pServer->setCallbacks(new MyServerCallbacks());
 
-	pService = pServer->createService(SERVICE_UUID);
-	pTxCharacteristic = pService->createCharacteristic(
-		CHARACTERISTIC_UUID,
+	BLEService *pService = pServer->createService(SERVICE_UUID);
+	p_to_phone_characteristic = pService->createCharacteristic(
+		TO_PHONE_CHARACTERISTIC_UUID,
 		BLECharacteristic::PROPERTY_READ |
-			BLECharacteristic::PROPERTY_WRITE);
+		BLECharacteristic::PROPERTY_WRITE);
+		
+	// p_to_phone_characteristic->setValue("Hello World says Neil");
+	p_to_phone_characteristic->setCallbacks(new MyCallbacks());
+	p_to_phone_characteristic->addDescriptor(new BLE2902());
 
-	pTxCharacteristic->setValue("Hello World says Neil");
-	pTxCharacteristic->setCallbacks(new MyCallbacks());
-	pTxCharacteristic->addDescriptor(new BLE2902());
+	p_to_sensor_characteristic = pService->createCharacteristic(
+		TO_SENSOR_CHARACTERISTIC_UUID,
+		BLECharacteristic::PROPERTY_READ);
+
+	p_to_sensor_characteristic->setCallbacks(new MyToSensorCallbacks());
+	p_to_sensor_characteristic->addDescriptor(new BLE2902());
 
 	pService->start();
+
 	// BLEAdvertising *pAdvertising = pServer->getAdvertising();  // this still is working for backward compatibility
 	BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
 	pAdvertising->addServiceUUID(SERVICE_UUID);
@@ -150,8 +187,8 @@ void loop()
 {
 	// if (deviceConnected)
 	// {
-	// 	pTxCharacteristic->setValue((uint8_t*)test_reply, strlen(test_reply));
-	// 	pTxCharacteristic->notify();
+	// 	p_to_phone_characteristic->setValue((uint8_t*)test_reply, strlen(test_reply));
+	// 	p_to_phone_characteristic->notify();
 	// 	txValue++;
 	// 	delay(10); // bluetooth stack will go into congestion, if too many packets are sent
 	// }
@@ -163,7 +200,7 @@ void loop()
 		pServer->startAdvertising(); // restart advertising
 		Serial.println("start advertising");
 		oldDeviceConnected = deviceConnected;
-	}
+	}	
 	// connecting
 	if (deviceConnected && !oldDeviceConnected)
 	{
@@ -179,10 +216,11 @@ void loop()
 
 void compare_hum() {
 	if (curr_hum_value > 80) {
-		Serial.println("ALARM!!!");
+		// Serial.println("ALARM!!!");
+		p_to_phone_characteristic->setValue("ALARM!!!");
 	}
 
-	if (curr_hum_value > hum_max or curr_hum_value < hum_min) {
+	if (curr_hum_value < hum_max and curr_hum_value > hum_min) {
 		pinMode(RELAY_PIN, OUTPUT);
 		digitalWrite(RELAY_PIN, LOW);
 	}
