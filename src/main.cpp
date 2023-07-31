@@ -32,12 +32,15 @@ uint8_t hum_min = 10;
 uint8_t hum_max = 70;
 void compare_hum();
 
-uint8_t curr_hum_value = 50;
+uint8_t curr_hum_value = 72;
 uint8_t curr_temp_value = 15;
 std::string BLE_reply;
 std::string BLE_reply_to_sensor;
 
 const uint8_t HUMIDITY_SENSOR_ACCURACY = 2;
+
+bool is_compressor_start = false;
+bool is_relay_controlled_by_user = false;
 
 class MyServerCallbacks : public BLEServerCallbacks
 {
@@ -64,6 +67,57 @@ class MyCallbacks : public BLECharacteristicCallbacks
 			Serial.println("*********");
 			Serial.print("Received Value: ");
 
+			// Find an Error
+			auto error_pos = rxValue.find("Error");
+			if (error_pos != std::string::npos) {
+				BLE_reply = rxValue;
+				Serial.print(BLE_reply.c_str());
+				Serial.println("*********");
+				return;
+			}
+
+			auto relay_control = rxValue.find("relay");
+			
+			if (relay_control != std::string::npos) {
+				std::string tmp = rxValue.substr(relay_control + 6, 2);
+
+				Serial.printf("%s\n", tmp.c_str());
+
+				if (tmp == "on") {
+					is_compressor_start = true;
+					is_relay_controlled_by_user = true;
+					BLE_reply = "Set the relay status to ON\n";
+				}
+				else if (tmp == "of") {
+					is_compressor_start = false;
+					is_relay_controlled_by_user = true;
+					BLE_reply = "Set the relay status to OFF\n";
+				}
+				else if (tmp == "au") {
+					is_relay_controlled_by_user = false;
+				}
+				else {
+					BLE_reply = "ERROR: Unknown argument!\n";
+				}
+				
+				Serial.print(BLE_reply.c_str());
+				Serial.println("*********");
+				return;
+			}
+
+			auto curr_hum_command = rxValue.find("curr_hum");
+
+			if (curr_hum_command != std::string::npos) {
+				if (curr_hum_value == 0xFF)
+					BLE_reply = "ERROR: No humidity value from sensor!\n";
+				else
+					BLE_reply = std::to_string(curr_hum_value) + '\n';
+
+				Serial.print(BLE_reply.c_str());
+				Serial.println("*********");
+				return;
+			}
+
 			// Parse input from PC
 			auto PC_input_pos = rxValue.find("hum");
 
@@ -72,9 +126,11 @@ class MyCallbacks : public BLECharacteristicCallbacks
 			}
 			else {
 				// TODO Add checks
+
 				hum_min = std::stoi(rxValue.substr(PC_input_pos + 4, 2));
 				hum_max = std::stoi(rxValue.substr(PC_input_pos + 7, 2));
 				BLE_reply += "New humidity border values is " + std::to_string(hum_min) + " and " + std::to_string(hum_max) + '\n';
+				// BLE_reply = rxValue;
 				Serial.print(BLE_reply.c_str());
 				Serial.println("*********");
 				return;
@@ -215,16 +271,29 @@ void loop()
 }
 
 void compare_hum() {
+	if (is_relay_controlled_by_user) {
+		return;
+	}
+
 	if (curr_hum_value > 80) {
 		// Serial.println("ALARM!!!");
 		p_to_phone_characteristic->setValue("ALARM!!!");
 	}
 
-	if (curr_hum_value < hum_max and curr_hum_value > hum_min) {
+	if (curr_hum_value < hum_min) {
+		is_compressor_start = true;
+	}
+
+	if (curr_hum_value > hum_max) {
+		is_compressor_start = false;
+	}
+
+	if (is_compressor_start) {
 		pinMode(RELAY_PIN, OUTPUT);
 		digitalWrite(RELAY_PIN, LOW);
 	}
 	else {
 		pinMode(RELAY_PIN, INPUT);
 	}
+
 }
