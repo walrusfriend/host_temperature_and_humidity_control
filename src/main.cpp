@@ -51,7 +51,8 @@ struct Command {
 	std::string name;
 	std::function<void(const std::string&)> handler;
 
-	Command(std::string&& command_name, void(*command_handler)(const std::string& message)) {
+	// Command(std::string&& command_name, void(*command_handler)(const std::string& message)) {
+	Command(std::string&& command_name, std::function<void(const std::string&)>command_handler) {
 		name = command_name;
 		handler = command_handler;
 	}
@@ -62,6 +63,7 @@ struct Command {
 };
 
 std::vector<Command> command_list;
+// std::array<Command, 5> command_list;
 
 /**
  * TODO: Split commands by user and sensor or something else
@@ -103,111 +105,120 @@ class MyCallbacks : public BLECharacteristicCallbacks
 		if (rxValue.length() > 0)
 		{
 			Serial.println("*********");
-			// Serial.print("Received Value: ");
+			Serial.print("Received Value: ");
 
 			// Find an Error
-			// auto error_pos = rxValue.find("Error");
-			// if (error_pos != std::string::npos) {
-			// 	BLE_reply = rxValue;
-			// 	Serial.print(BLE_reply.c_str());
-			// 	Serial.println("*********");
-			// 	return;
-			// }
+			auto error_pos = rxValue.find("Error");
+			if (error_pos != std::string::npos) {
+				BLE_reply = rxValue;
+				Serial.print(BLE_reply.c_str());
+				Serial.println("*********");
+				return;
+			}
 
-			// auto relay_control = rxValue.find("relay");
+			auto sensor_check = rxValue.find("check");
+
+			if (sensor_check != std::string::npos) {
+				BLE_reply_to_sensor = "check";
+				Serial.println("Checking sensor...");
+				return;
+			}
+
+			auto relay_control = rxValue.find("relay");
 			
-			// if (relay_control != std::string::npos) {
-			// 	std::string tmp = rxValue.substr(relay_control + 6, 2);
+			if (relay_control != std::string::npos) {
+				std::string tmp = rxValue.substr(relay_control + 6, 2);
 
-			// 	Serial.printf("%s\n", tmp.c_str());
+				Serial.printf("%s\n", tmp.c_str());
 
-			// 	if (tmp == "on") {
-			// 		is_compressor_start = true;
-			// 		is_relay_controlled_by_user = true;
-			// 		BLE_reply = "Set the relay status to ON\n";
-			// 	}
-			// 	else if (tmp == "of") {
-			// 		is_compressor_start = false;
-			// 		is_relay_controlled_by_user = true;
-			// 		BLE_reply = "Set the relay status to OFF\n";
-			// 	}
-			// 	else if (tmp == "au") {
-			// 		is_relay_controlled_by_user = false;
-			// 	}
-			// 	else {
-			// 		BLE_reply = "ERROR: Unknown argument!\n";
-			// 	}
+				if (tmp == "on") {
+					is_compressor_start = true;
+					is_relay_controlled_by_user = true;
+					BLE_reply = "Set the relay status to ON\n";
+				}
+				else if (tmp == "of") {
+					is_compressor_start = false;
+					is_relay_controlled_by_user = true;
+					BLE_reply = "Set the relay status to OFF\n";
+				}
+				else if (tmp == "au") {
+					is_relay_controlled_by_user = false;
+				}
+				else {
+					BLE_reply = "ERROR: Unknown argument!\n";
+				}
 				
-			// 	Serial.print(BLE_reply.c_str());
-			// 	Serial.println("*********");
-			// 	return;
-			// }
+				Serial.print(BLE_reply.c_str());
+				Serial.println("*********");
+				return;
+			}
 
-			// auto curr_hum_command = rxValue.find("curr_hum");
+			auto curr_hum_command = rxValue.find("curr_hum");
 
-			// if (curr_hum_command != std::string::npos) {
-			// 	if (curr_hum_value == 0xFF)
-			// 		BLE_reply = "ERROR: No humidity value from sensor!\n";
-			// 	else
-			// 		BLE_reply = std::to_string(curr_hum_value) + '\n';
+			if (curr_hum_command != std::string::npos) {
+				if (curr_hum_value == 0xFF)
+					BLE_reply = "ERROR: No humidity value from sensor!\n";
+				else
+					BLE_reply = std::to_string(curr_hum_value) + '\n';
 
-			// 	Serial.print(BLE_reply.c_str());
-			// 	Serial.println("*********");
-			// 	return;
-			// }
+				Serial.print(BLE_reply.c_str());
+				Serial.println("*********");
+				return;
+			}
 
-			// // Parse input from PC
-			// auto PC_input_pos = rxValue.find("hum");
+			// Parse input from PC
+			auto PC_input_pos = rxValue.find("hum");
 
-			// if (PC_input_pos == std::string::npos) {
-			// 	// TODO Handler the error
-			// }
-			// else {
-			// 	// TODO Add checks
+			if (PC_input_pos == std::string::npos) {
+				// TODO Handler the error
+			}
+			else {
+				// TODO Add checks
 
-			// 	hum_min = std::stoi(rxValue.substr(PC_input_pos + 4, 2));
-			// 	hum_max = std::stoi(rxValue.substr(PC_input_pos + 7, 2));
-			// 	BLE_reply += "New humidity border values is " + std::to_string(hum_min) + " and " + std::to_string(hum_max) + '\n';
-			// 	// BLE_reply = rxValue;
-			// 	Serial.print(BLE_reply.c_str());
-			// 	Serial.println("*********");
-			// 	return;
-			// }
+				hum_min = std::stoi(rxValue.substr(PC_input_pos + 4, 2));
+				hum_max = std::stoi(rxValue.substr(PC_input_pos + 7, 2));
+				BLE_reply += "New humidity border values is " + std::to_string(hum_min) + " and " + 
+							  std::to_string(hum_max) + '\n';
+				// BLE_reply = rxValue;
+				Serial.print(BLE_reply.c_str());
+				Serial.println("*********");
+				return;
+			}
 
-			// // TODO Assume that the message arrives entirely in one package!
+			// TODO Assume that the message arrives entirely in one package!
 
-			// // Parse hum and temp values
-			// // TODO Try to find '.' to locate the mantissa of the float values or just send float
-			// std::string hum_str = "Humidity: ";
-			// auto pos = rxValue.find(hum_str);
+			// Parse hum and temp values
+			// TODO Try to find '.' to locate the mantissa of the float values or just send float
+			std::string hum_str = "Humidity: ";
+			auto pos = rxValue.find(hum_str);
 
-			// if (pos == std::string::npos) {
-			// 	// TODO Handler error
-			// }
-			// else {
-			// 	// TODO Add check for digit
-			// 	curr_hum_value = std::stoi(rxValue.substr(pos + hum_str.size(), 2)) - 1;
-			// }
+			if (pos == std::string::npos) {
+				// TODO Handler error
+			}
+			else {
+				// TODO Add check for digit
+				curr_hum_value = std::stoi(rxValue.substr(pos + hum_str.size(), 2)) - 1;
+			}
 
-			// std::string temp_str = "Temperature: ";
-			// pos = rxValue.find(temp_str);
+			std::string temp_str = "Temperature: ";
+			pos = rxValue.find(temp_str);
 
-			// if (pos == std::string::npos) {
-			// 	// TODO Handler error
-			// }
-			// else {
-			// 	curr_temp_value = std::stoi(rxValue.substr(pos + temp_str.size(), 2));
-			// }
+			if (pos == std::string::npos) {
+				// TODO Handler error
+			}
+			else {
+				curr_temp_value = std::stoi(rxValue.substr(pos + temp_str.size(), 2));
+			}
 
-			// BLE_reply = rxValue;
-			// Serial.printf("%s\n", rxValue.c_str());
-			// // Serial.printf("Readed hum: %d and readed temp: %d\n", curr_hum_value, curr_temp_value);
-			// // for (int i = 0; i < rxValue.length(); i++)
-			// // 	Serial.print(rxValue[i]);
+			BLE_reply = rxValue;
+			Serial.printf("%s\n", rxValue.c_str());
+			// Serial.printf("Readed hum: %d and readed temp: %d\n", curr_hum_value, curr_temp_value);
+			// for (int i = 0; i < rxValue.length(); i++)
+			// 	Serial.print(rxValue[i]);
 
-			// Serial.println("*********");
+			// parse_message(rxValue);
 
-			parse_message(rxValue);
+			Serial.println("*********");
 
 			// Calculate border values
 			uint8_t step_value = (hum_max - hum_min) * 0.2;
@@ -239,6 +250,10 @@ class MyToSensorCallbacks : public BLECharacteristicCallbacks
 		pCharacteristic->setValue(BLE_reply_to_sensor);
 		BLE_reply_to_sensor.clear();
 	}
+
+	void onWrite(BLECharacteristic* pCharacteristic) {
+		Serial.printf("%s\n", pCharacteristic->getValue().c_str());
+	}
 };
 
 void setup()
@@ -264,14 +279,16 @@ void setup()
 
 	p_to_sensor_characteristic = pService->createCharacteristic(
 		TO_SENSOR_CHARACTERISTIC_UUID,
-		BLECharacteristic::PROPERTY_READ);
+		BLECharacteristic::PROPERTY_READ |
+		BLECharacteristic::PROPERTY_WRITE);
 
 	p_to_sensor_characteristic->setCallbacks(new MyToSensorCallbacks());
 	p_to_sensor_characteristic->addDescriptor(new BLE2902());
 
 	pService->start();
 
-	// BLEAdvertising *pAdvertising = pServer->getAdvertising();  // this still is working for backward compatibility
+	// this still is working for backward compatibility
+	// BLEAdvertising *pAdvertising = pServer->getAdvertising();
 	BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
 	pAdvertising->addServiceUUID(SERVICE_UUID);
 	// pAdvertising->setScanResponse(false);
@@ -312,6 +329,14 @@ void loop()
 }
 
 void compare_hum() {
+	if (is_compressor_start) {
+		pinMode(RELAY_PIN, OUTPUT);
+		digitalWrite(RELAY_PIN, LOW);
+	}
+	else {
+		pinMode(RELAY_PIN, INPUT);
+	}
+
 	if (is_relay_controlled_by_user) {
 		return;
 	}
@@ -328,24 +353,16 @@ void compare_hum() {
 	if (curr_hum_value > hum_max) {
 		is_compressor_start = false;
 	}
-
-	if (is_compressor_start) {
-		pinMode(RELAY_PIN, OUTPUT);
-		digitalWrite(RELAY_PIN, LOW);
-	}
-	else {
-		pinMode(RELAY_PIN, INPUT);
-	}
-
 }
 
 void add_commands() {
-	command_list.emplace_back("hum", hum_handler);
-	command_list.emplace_back("curr_hum", curr_hum_handler);
-	command_list.emplace_back("Error", error_handler);
-	command_list.emplace_back("relay", relay_handler);
-	command_list.emplace_back("Humidity: ", humidity_handler);
-	command_list.emplace_back("Temperature: ", temperature_handler);
+	// command_list[i]
+	// command_list.push_back(Command("hum", hum_handler));
+	// command_list.emplace_back("curr_hum", curr_hum_handler);
+	// command_list.emplace_back("Error", error_handler);
+	// command_list.emplace_back("relay", relay_handler);
+	// command_list.emplace_back("Humidity: ", humidity_handler);
+	// command_list.emplace_back("Temperature: ", temperature_handler);
 }
 
 void hum_handler(const std::string& message) {
@@ -372,7 +389,8 @@ void hum_handler(const std::string& message) {
 
 	// hum_min = std::stoi(message.substr(4, 2));
 	// hum_max = std::stoi(message.substr(7, 2));
-	// BLE_reply += "New humidity border values is " + std::to_string(hum_min) + " and " + std::to_string(hum_max) + '\n';
+	// BLE_reply += "New humidity border values is " + std::to_string(hum_min) + 
+	//				" and " + std::to_string(hum_max) + '\n';
 	BLE_reply = message;
 	Serial.print(BLE_reply.c_str());
 	Serial.println("*********");
