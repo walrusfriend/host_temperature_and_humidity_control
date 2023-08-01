@@ -1,5 +1,4 @@
-// #include <regex>
-// #include <functional>
+#include <algorithm>
 
 #include <BLEDevice.h>
 #include <BLEUtils.h>
@@ -13,9 +12,7 @@
 
 /**
  * TODO: 
- * - Messages from phone dublicates for every 'read' operation
- * - Add check for all!
- * - Replace delay in loop func to interrupt handler behaviour
+ * - Add checks for all!
 */
 
 #define DEBUG 1
@@ -33,8 +30,8 @@ bool oldDeviceConnected = false;
 uint8_t txValue = 0;
 
 static constexpr uint8_t RELAY_PIN = 16;
-uint8_t hum_min = 10;
-uint8_t hum_max = 70;
+uint8_t hum_min = 53;
+uint8_t hum_max = 80;
 void compare_hum();
 
 uint8_t curr_hum_value = 72;
@@ -51,8 +48,7 @@ struct Command {
 	std::string name;
 	std::function<void(const std::string&)> handler;
 
-	// Command(std::string&& command_name, void(*command_handler)(const std::string& message)) {
-	Command(std::string&& command_name, std::function<void(const std::string&)>command_handler) {
+	Command(std::string&& command_name, std::function<void(const std::string&)> command_handler) {
 		name = command_name;
 		handler = command_handler;
 	}
@@ -61,9 +57,6 @@ struct Command {
 
 	}
 };
-
-std::vector<Command> command_list;
-// std::array<Command, 5> command_list;
 
 /**
  * TODO: Split commands by user and sensor or something else
@@ -80,7 +73,14 @@ void parse_message(const std::string& message);
 
 void debug(const std::string& debug_info);
 
-void add_commands();
+bool is_number(const std::string& s);
+
+static const std::vector<Command> command_list = {Command("hum", hum_handler),	
+												  Command("curr_hum", curr_hum_handler),	
+												  Command("Error", error_handler),	
+												  Command("relay", relay_handler),	
+												  Command("Humidity: ", humidity_handler),	
+												  Command("Temperature: ", temperature_handler)};	
 
 class MyServerCallbacks : public BLEServerCallbacks
 {
@@ -105,119 +105,7 @@ class MyCallbacks : public BLECharacteristicCallbacks
 		if (rxValue.length() > 0)
 		{
 			Serial.println("*********");
-			Serial.print("Received Value: ");
-
-			// Find an Error
-			auto error_pos = rxValue.find("Error");
-			if (error_pos != std::string::npos) {
-				BLE_reply = rxValue;
-				Serial.print(BLE_reply.c_str());
-				Serial.println("*********");
-				return;
-			}
-
-			auto sensor_check = rxValue.find("check");
-
-			if (sensor_check != std::string::npos) {
-				BLE_reply_to_sensor = "check";
-				Serial.println("Checking sensor...");
-				return;
-			}
-
-			auto relay_control = rxValue.find("relay");
-			
-			if (relay_control != std::string::npos) {
-				std::string tmp = rxValue.substr(relay_control + 6, 2);
-
-				Serial.printf("%s\n", tmp.c_str());
-
-				if (tmp == "on") {
-					is_compressor_start = true;
-					is_relay_controlled_by_user = true;
-					BLE_reply = "Set the relay status to ON\n";
-				}
-				else if (tmp == "of") {
-					is_compressor_start = false;
-					is_relay_controlled_by_user = true;
-					BLE_reply = "Set the relay status to OFF\n";
-				}
-				else if (tmp == "au") {
-					is_relay_controlled_by_user = false;
-				}
-				else {
-					BLE_reply = "ERROR: Unknown argument!\n";
-				}
-				
-				Serial.print(BLE_reply.c_str());
-				Serial.println("*********");
-				return;
-			}
-
-			auto curr_hum_command = rxValue.find("curr_hum");
-
-			if (curr_hum_command != std::string::npos) {
-				if (curr_hum_value == 0xFF)
-					BLE_reply = "ERROR: No humidity value from sensor!\n";
-				else
-					BLE_reply = std::to_string(curr_hum_value) + '\n';
-
-				Serial.print(BLE_reply.c_str());
-				Serial.println("*********");
-				return;
-			}
-
-			// Parse input from PC
-			auto PC_input_pos = rxValue.find("hum");
-
-			if (PC_input_pos == std::string::npos) {
-				// TODO Handler the error
-			}
-			else {
-				// TODO Add checks
-
-				hum_min = std::stoi(rxValue.substr(PC_input_pos + 4, 2));
-				hum_max = std::stoi(rxValue.substr(PC_input_pos + 7, 2));
-				BLE_reply += "New humidity border values is " + std::to_string(hum_min) + " and " + 
-							  std::to_string(hum_max) + '\n';
-				// BLE_reply = rxValue;
-				Serial.print(BLE_reply.c_str());
-				Serial.println("*********");
-				return;
-			}
-
-			// TODO Assume that the message arrives entirely in one package!
-
-			// Parse hum and temp values
-			// TODO Try to find '.' to locate the mantissa of the float values or just send float
-			std::string hum_str = "Humidity: ";
-			auto pos = rxValue.find(hum_str);
-
-			if (pos == std::string::npos) {
-				// TODO Handler error
-			}
-			else {
-				// TODO Add check for digit
-				curr_hum_value = std::stoi(rxValue.substr(pos + hum_str.size(), 2)) - 1;
-			}
-
-			std::string temp_str = "Temperature: ";
-			pos = rxValue.find(temp_str);
-
-			if (pos == std::string::npos) {
-				// TODO Handler error
-			}
-			else {
-				curr_temp_value = std::stoi(rxValue.substr(pos + temp_str.size(), 2));
-			}
-
-			BLE_reply = rxValue;
-			Serial.printf("%s\n", rxValue.c_str());
-			// Serial.printf("Readed hum: %d and readed temp: %d\n", curr_hum_value, curr_temp_value);
-			// for (int i = 0; i < rxValue.length(); i++)
-			// 	Serial.print(rxValue[i]);
-
-			// parse_message(rxValue);
-
+			parse_message(rxValue);
 			Serial.println("*********");
 
 			// Calculate border values
@@ -260,8 +148,6 @@ void setup()
 {
 	Serial.begin(115200);
 	Serial.println("Starting BLE work!");
-
-	add_commands();
 
 	BLEDevice::init("ESP-32-BLE-Server");
 	pServer = BLEDevice::createServer();
@@ -324,6 +210,11 @@ void loop()
 		oldDeviceConnected = deviceConnected;
 	}
 
+	/** TODO: Make a more intellegance check. For example - starts a timer and wait for it */
+	// if (pServer->getConnectedCount() < 2) {
+	// 	BLE_reply = "ERROR: Sensor disconnected!\n";
+	// 	debug(BLE_reply);
+	// }
 	compare_hum();
 	delay(1000);
 }
@@ -355,45 +246,64 @@ void compare_hum() {
 	}
 }
 
-void add_commands() {
-	// command_list[i]
-	// command_list.push_back(Command("hum", hum_handler));
-	// command_list.emplace_back("curr_hum", curr_hum_handler);
-	// command_list.emplace_back("Error", error_handler);
-	// command_list.emplace_back("relay", relay_handler);
-	// command_list.emplace_back("Humidity: ", humidity_handler);
-	// command_list.emplace_back("Temperature: ", temperature_handler);
-}
-
 void hum_handler(const std::string& message) {
-	if (message.size() > strlen("hum xx xx\n")) {
-		BLE_reply = "ERROR: Unknown command format!\n";
+	// Try to find the 'space' sym between 'min' and 'max' values of the user input
+	auto space_pos = message.find_last_of(' ');
+	if (space_pos == std::string::npos or space_pos == 3 /* Exclude the first 'space' sym */) {
+		BLE_reply = "ERROR: Unknown command format!\n"
+					"Command must looks like 'hum xx xx' where xx - a positive number from 0 to 100!\n";
 		debug(BLE_reply);
 		return;
 	}
 
-	// Try to find the 'space' sym between 'min' and 'max' values of the user input
-	auto space_pos = message.find_last_of(' ', strlen("hum "));
-	if (space_pos == std::string::npos) {
-		BLE_reply = "ERROR: Unknown command format!\n"
-					"Command must have the 'space' symbol between the minimum and the maximum values!\n";
+	// Split min and max values
+	std::string&& tmp_hum_min_str = message.substr(strlen("hum "), space_pos - strlen("hum "));
+	std::string&& tmp_hum_max_str = message.substr(space_pos + 1, message.size() - space_pos);
+
+	if (tmp_hum_max_str[0] == '-' or tmp_hum_min_str[0] == '-') {
+		BLE_reply = "ERROR: The humidity value borders must be a positive number!\n";
 		debug(BLE_reply);
+		return;
 	}
 
-	// Split min and max values
-	// std::string&& tmp_hum_min_str = message.substr(strlen("hum "), space_pos - strlen("hum "));
-	// std::string&& tmp_hum_max_str = message.substr(space_pos + 1, message.size() - space_pos);
+	uint16_t tmp_min_hum_value = 0;
+	uint16_t tmp_max_hum_value = 0;
 
-	// debug(tmp_hum_min_str);
-	// debug(tmp_hum_max_str);
+	if (is_number(tmp_hum_min_str)) {
+		tmp_min_hum_value = std::stoi(tmp_hum_min_str);
+	}
+	else {
+		BLE_reply = "ERROR: The minimum humidity value is not a number!\n";
+		debug(BLE_reply);
+		return;
+	}
 
-	// hum_min = std::stoi(message.substr(4, 2));
-	// hum_max = std::stoi(message.substr(7, 2));
-	// BLE_reply += "New humidity border values is " + std::to_string(hum_min) + 
-	//				" and " + std::to_string(hum_max) + '\n';
-	BLE_reply = message;
+	if (is_number(tmp_hum_max_str)) {
+		tmp_max_hum_value = std::stoi(tmp_hum_max_str);
+	}
+	else {
+		BLE_reply = "ERROR: The maximum humidity value is not a number!\n";
+		debug(BLE_reply);
+		return;
+	}
+
+	if (tmp_min_hum_value > tmp_max_hum_value) {
+		BLE_reply = "ERROR: The lower border must be less than the higher border!\n";
+		debug(BLE_reply);
+		return;
+	}
+	else if (tmp_max_hum_value > 100) {
+		BLE_reply = "ERROR: The maximum humidity value must be less or equal than 100!\n";
+		debug(BLE_reply);
+		return;
+	}
+
+	hum_min = tmp_min_hum_value;
+	hum_max = tmp_max_hum_value;
+
+	BLE_reply = "New humidity border values is " + std::to_string(hum_min) + 
+					" and " + std::to_string(hum_max) + '\n';
 	Serial.print(BLE_reply.c_str());
-	Serial.println("*********");
 }
 
 void curr_hum_handler(const std::string& message) {
@@ -427,6 +337,7 @@ void relay_handler(const std::string& message) {
 	}
 	else if (tmp == "auto") {
 		is_relay_controlled_by_user = false;
+		BLE_reply = "The relay change its state automatically!\n";
 	}
 	else {
 		BLE_reply = "ERROR: Unknown argument!\n";
@@ -435,27 +346,44 @@ void relay_handler(const std::string& message) {
 	Serial.print(BLE_reply.c_str());
 }
 
+/** TODO: Remake a algorythm - sensor sends a headher of the message, humidity and temperature handlers will be united to one*/
 void humidity_handler(const std::string& message) {
-	/**
-	 * TODO: Check string for containig a number
-	*/
-	// curr_hum_value = std::stoi(rxValue.substr(pos + hum_str.size(), 2)) - 1;
+	/** TODO: Now algorythm support only two-digit numbers, fix it */
+	// std::string&& tmp_str = message.substr(strlen("Humidity: "), 2);
+	std::string&& tmp_str = message.substr(strlen("Humidity: "), 2);
+	if (is_number(tmp_str)) {
+		curr_hum_value = std::stoi(tmp_str);
+		BLE_reply = message;
+		debug(BLE_reply);
+	}
+	else {
+		BLE_reply = "ERROR: Check the raw input from the sensor:\n" + message + '\n' + tmp_str;
+		debug(BLE_reply);
+		return;
+	}
 }
 
 void temperature_handler(const std::string& message) {
-	// curr_temp_value = std::stoi(rxValue.substr(pos + temp_str.size(), 2));
+	/** TODO: Now algorythm support only two-digit numbers, fix it */
+	std::string&& tmp_str = message.substr(strlen("Temperature: "), 2);
+	if (is_number(tmp_str)) {
+		curr_temp_value = std::stoi(tmp_str);
+	}
+	else {
+		BLE_reply = "ERROR: Check the raw input from the sensor:\n" + message;
+		debug(BLE_reply);
+		return;
+	}
 }
 
+/** TODO: This will be work only if the message starts with a command*/
 void parse_message(const std::string& message) {
 	for (uint8_t i = 0; i < command_list.size(); ++i) {
 		if (message.find(command_list[i].name) != std::string::npos) {
-			debug("Command finded!");
 			command_list[i].handler(message);
-			debug("Exit from handler");
 			return;
 		}
 	}
-	debug("Coundn't find the command!");
 }
 
 #if DEBUG == 1
@@ -465,3 +393,9 @@ void debug(const std::string& debug_info) {
 #else
 void debug(const std::string& debug_info) {}
 #endif
+
+bool is_number(const std::string& s)
+{
+    return !s.empty() && std::find_if(s.begin(), 
+        s.end(), [](unsigned char c) { return !std::isdigit(c); }) == s.end();
+}
