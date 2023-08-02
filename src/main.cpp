@@ -75,12 +75,14 @@ void debug(const std::string& debug_info);
 
 bool is_number(const std::string& s);
 
-static const std::vector<Command> command_list = {Command("hum", hum_handler),	
+static const std::vector<Command> command_list = {
 												  Command("curr_hum", curr_hum_handler),	
 												  Command("Error", error_handler),	
 												  Command("relay", relay_handler),	
 												  Command("Humidity: ", humidity_handler),	
-												  Command("Temperature: ", temperature_handler)};	
+												  Command("Temperature: ", temperature_handler),
+												  Command("hum", hum_handler)
+												  };	
 
 class MyServerCallbacks : public BLEServerCallbacks
 {
