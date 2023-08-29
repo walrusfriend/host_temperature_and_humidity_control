@@ -17,9 +17,13 @@
 
 #define DEBUG 1
 
-#define SERVICE_UUID "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
-#define TO_PHONE_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+// #define SERVICE_UUID "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
+// #define TO_PHONE_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 #define TO_SENSOR_CHARACTERISTIC_UUID "bea03c8c-2cc5-11ee-be56-0242ac120002"
+
+// Set UUID's same as UUID on BLE module (MLT-BT05)
+#define SERVICE_UUID "0000ffe0-0000-1000-8000-00805f9b34fb"
+#define TO_PHONE_CHARACTERISTIC_UUID "0000ffe1-0000-1000-8000-00805f9b34fb"
 
 BLEServer *pServer;
 BLECharacteristic *p_to_phone_characteristic;
@@ -34,7 +38,7 @@ uint8_t hum_min = 53;
 uint8_t hum_max = 80;
 void compare_hum();
 
-uint8_t curr_hum_value = 72;
+uint8_t curr_hum_value = 0xff;
 uint8_t curr_temp_value = 15;
 std::string BLE_reply;
 std::string BLE_reply_to_sensor;
@@ -105,6 +109,7 @@ class MyCallbacks : public BLECharacteristicCallbacks
 		if (rxValue.length() > 0)
 		{
 			Serial.println("*********");
+			Serial.println(rxValue.c_str());
 			parse_message(rxValue);
 			Serial.println("*********");
 
