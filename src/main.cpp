@@ -6,6 +6,7 @@
 #include <BLE2902.h>
 
 #include <HardwareSerial.h>
+#include "RelayController.h"
 
 // See the following for generating UUIDs:
 // https://www.uuidgenerator.net/
@@ -33,7 +34,6 @@ bool deviceConnected = false;
 bool oldDeviceConnected = false;
 uint8_t txValue = 0;
 
-static constexpr uint8_t RELAY_PIN = 16;
 uint8_t hum_min = 53;
 uint8_t hum_max = 80;
 void compare_hum();
@@ -47,6 +47,13 @@ const uint8_t HUMIDITY_SENSOR_ACCURACY = 2;
 
 bool is_compressor_start = false;
 bool is_relay_controlled_by_user = false;
+
+
+/** TODO: Move this to RelayController */
+bool inflow_low_state = false;
+bool inflow_high_state = false;
+bool exhaust_low_state = false;
+bool exhaust_high_state = false;
 
 struct Command {
 	std::string name;
@@ -72,6 +79,10 @@ void error_handler(const std::string& message);
 void relay_handler(const std::string& message);
 void humidity_handler(const std::string& message);
 void temperature_handler(const std::string& message);
+void inflow_low_handler(const std::string& message);
+void inflow_high_handler(const std::string& message);
+void exhaust_low_handler(const std::string& message);
+void exhaust_high_handler(const std::string& message);
 
 void parse_message(const std::string& message); 
 
@@ -79,12 +90,18 @@ void debug(const std::string& debug_info);
 
 bool is_number(const std::string& s);
 
-static const std::vector<Command> command_list = {Command("hum", hum_handler),	
+static const std::vector<Command> command_list = {
 												  Command("curr_hum", curr_hum_handler),	
 												  Command("Error", error_handler),	
 												  Command("relay", relay_handler),	
 												  Command("Humidity: ", humidity_handler),	
-												  Command("Temperature: ", temperature_handler)};	
+												  Command("Temperature: ", temperature_handler),
+												  Command("hum", hum_handler),
+												  Command("inflow_low", inflow_low_handler),
+												  Command("inflow_high", inflow_high_handler),
+												  Command("exhaust_low", exhaust_low_handler),
+												  Command("exhaust_high", exhaust_high_handler),
+												  };	
 
 class MyServerCallbacks : public BLEServerCallbacks
 {
@@ -226,11 +243,13 @@ void loop()
 
 void compare_hum() {
 	if (is_compressor_start) {
-		pinMode(RELAY_PIN, OUTPUT);
-		digitalWrite(RELAY_PIN, LOW);
+		// pinMode(RELAY_PIN, OUTPUT);
+		// digitalWrite(RELAY_PIN, LOW);
+		RelayController::on(RelayController::COMPRESSOR_RELAY);
 	}
 	else {
-		pinMode(RELAY_PIN, INPUT);
+		// pinMode(RELAY_PIN, INPUT);
+		RelayController::off(RelayController::COMPRESSOR_RELAY);
 	}
 
 	if (is_relay_controlled_by_user) {
@@ -378,6 +397,132 @@ void temperature_handler(const std::string& message) {
 		BLE_reply = "ERROR: Check the raw input from the sensor:\n" + message;
 		debug(BLE_reply);
 		return;
+	}
+}
+
+void inflow_low_handler(const std::string& message) {
+	uint8_t header_size = strlen("inflow_low ");
+	std::string tmp = message.substr(header_size, message.size() - header_size);
+
+	debug(tmp);
+
+	if (tmp == "on") {
+		if (inflow_high_state == true) {
+			RelayController::off(RelayController::INFLOW_RELAY_HIGH);
+			inflow_high_state = false;
+		}
+
+		RelayController::on(RelayController::INFLOW_RELAY_LOW);
+
+		inflow_low_state = true;
+
+		BLE_reply = "Inflow low changed status to ON\n";
+		debug(BLE_reply);
+	}
+	else if (tmp == "off") {
+		RelayController::off(RelayController::INFLOW_RELAY_LOW);
+
+		inflow_high_state = false;
+
+		BLE_reply = "Inflow low changed status to OFF\n";
+		debug(BLE_reply);
+	}
+	else {
+		BLE_reply = "ERROR: Invalid argument!\n";
+		debug(BLE_reply);
+	}
+}
+
+void inflow_high_handler(const std::string& message) {
+	uint8_t header_size = strlen("inflow_high ");
+	std::string tmp = message.substr(header_size, message.size() - header_size);
+
+	if (tmp == "on") {
+		if (inflow_low_state == true) {
+			RelayController::off(RelayController::INFLOW_RELAY_LOW);
+			inflow_low_state = false;
+		}
+
+		RelayController::on(RelayController::INFLOW_RELAY_HIGH);
+
+		inflow_high_state = true;
+
+		BLE_reply = "Inflow high changed status to ON\n";
+		debug(BLE_reply);
+	}
+	else if (tmp == "off") {
+		RelayController::off(RelayController::INFLOW_RELAY_HIGH);
+
+		inflow_high_state = false;
+
+		BLE_reply = "Inflow high changed status to OFF\n";
+		debug(BLE_reply);
+	}
+	else {
+		BLE_reply = "ERROR: Invalid argument!\n";
+		debug(BLE_reply);
+	}
+}
+
+void exhaust_low_handler(const std::string& message) {
+	uint8_t header_size = strlen("exhaust_low ");
+	std::string tmp = message.substr(header_size, message.size() - header_size);
+
+	if (tmp == "on") {
+		if (exhaust_high_state == true) {
+			RelayController::off(RelayController::EXHAUST_RELAY_HIGH);
+			exhaust_high_state = false;
+		}
+
+		RelayController::on(RelayController::EXHAUST_RELAY_LOW);
+
+		exhaust_low_state = true;
+
+		BLE_reply = "Exhaust low changed status to ON\n";
+		debug(BLE_reply);
+	}
+	else if (tmp == "off") {
+		RelayController::off(RelayController::EXHAUST_RELAY_LOW);
+
+		exhaust_low_state = false;
+
+		BLE_reply = "Exhaust low changed status to OFF\n";
+		debug(BLE_reply);
+	}
+	else {
+		BLE_reply = "ERROR: Invalid argument!\n";
+		debug(BLE_reply);
+	}
+}
+
+void exhaust_high_handler(const std::string& message) {
+	uint8_t header_size = strlen("exhaust_high ");
+	std::string tmp = message.substr(header_size, message.size() - header_size);
+
+	if (tmp == "on") {
+		if (exhaust_low_state == true) {
+			RelayController::off(RelayController::EXHAUST_RELAY_LOW);
+			exhaust_low_state = false;
+		}
+
+		RelayController::on(RelayController::EXHAUST_RELAY_HIGH);
+
+		exhaust_high_state = true;
+
+		BLE_reply = "Exhaust high changed status to ON\n";
+		debug(BLE_reply);
+	}
+	else if (tmp == "off") {
+		RelayController::off(RelayController::EXHAUST_RELAY_HIGH);
+
+		exhaust_high_state = false;
+		
+		BLE_reply = "Exhaust high changed status to OFF\n";
+		debug(BLE_reply);
+	}
+	else {
+		BLE_reply = "ERROR: Invalid argument!\n";
+		debug(BLE_reply);
 	}
 }
 
