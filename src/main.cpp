@@ -17,6 +17,10 @@
 
 // See the following for generating UUIDs:
 // https://www.uuidgenerator.net/
+/**
+ * TODO: Create standart UUID for all data between sensor and host and
+ * host and phone (if this feature will be available)
+*/
 
 /**
  * TODO: 
@@ -25,8 +29,8 @@
 
 #define DEBUG 1
 
-// #define SERVICE_UUID "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
-// #define TO_PHONE_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+// #define SERVICE_UUID "4fafc201-1fb5-459e-8fcc-c5c9c331914b" #define
+// TO_PHONE_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 #define TO_SENSOR_CHARACTERISTIC_UUID "bea03c8c-2cc5-11ee-be56-0242ac120002"
 
 // Set UUID's same as UUID on BLE module (MLT-BT05)
@@ -150,12 +154,18 @@ class MyCallbacks : public BLECharacteristicCallbacks
 			else {
 				BLE_reply_to_sensor = "S30\n";
 			}
-			// Serial.printf("DEBUG: reply %s\n", BLE_reply_to_sensor.c_str());
+			// Serial.printf("DEBUG: reply %s\n",
+			// BLE_reply_to_sensor.c_str());
 
 		}
 	}
 
 	void onRead(BLECharacteristic* pCharacteristic) {
+		pCharacteristic->setValue(BLE_reply);
+		BLE_reply.clear();
+	}
+
+	void onNotify(BLECharacteristic* pCharacteristic) {
 		pCharacteristic->setValue(BLE_reply);
 		BLE_reply.clear();
 	}
@@ -256,8 +266,8 @@ void setup()
 
 	pService->start();
 
-	// this still is working for backward compatibility
-	// BLEAdvertising *pAdvertising = pServer->getAdvertising();
+	// this still is working for backward compatibility BLEAdvertising
+	// *pAdvertising = pServer->getAdvertising();
 	BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
 	pAdvertising->addServiceUUID(SERVICE_UUID);
 	// pAdvertising->setScanResponse(false);
@@ -298,10 +308,10 @@ void loop()
 {
 	// if (deviceConnected)
 	// {
-	// 	p_to_phone_characteristic->setValue((uint8_t*)test_reply, strlen(test_reply));
-	// 	p_to_phone_characteristic->notify();
-	// 	txValue++;
-	// 	delay(10); // bluetooth stack will go into congestion, if too many packets are sent
+	//  p_to_phone_characteristic->setValue((uint8_t*)test_reply,
+	//  strlen(test_reply)); p_to_phone_characteristic->notify();
+	//  txValue++; delay(10); // bluetooth stack will go into
+	//  congestion, if too many packets are sent
 	// }
 
 	// disconnecting
@@ -319,10 +329,22 @@ void loop()
 		oldDeviceConnected = deviceConnected;
 	}
 
-	/** TODO: Make a more intellegance check. For example - starts a timer and wait for it */
-	// if (pServer->getConnectedCount() < 2) {
-	// 	BLE_reply = "ERROR: Sensor disconnected!\n";
-	// 	debug(BLE_reply);
+	if (Serial.available() >= 1) {
+		char sym[1024];
+		Serial.read(sym, Serial.available());
+
+		BLE_reply.append(sym);
+		
+		p_to_phone_characteristic->notify();
+
+		Serial.print("Try to send ");
+		Serial.println(sym);
+	}
+
+	/** TODO: Make a more intellegance check. For example - starts a
+	 * timer and wait for it */
+	// if (pServer->getConnectedCount() < 2) { BLE_reply = "ERROR:
+	//  Sensor disconnected!\n"; debug(BLE_reply);
 	// }
 	compare_hum();
 	delay(1000);
@@ -330,8 +352,7 @@ void loop()
 
 void compare_hum() {
 	if (is_compressor_start) {
-		// pinMode(RELAY_PIN, OUTPUT);
-		// digitalWrite(RELAY_PIN, LOW);
+		// pinMode(RELAY_PIN, OUTPUT); digitalWrite(RELAY_PIN, LOW);
 		RelayController::on(RelayController::COMPRESSOR_RELAY);
 	}
 	else {
@@ -358,7 +379,8 @@ void compare_hum() {
 }
 
 void hum_handler(const std::string& message) {
-	// Try to find the 'space' sym between 'min' and 'max' values of the user input
+	// Try to find the 'space' sym between 'min' and 'max' values of the
+	// user input
 	auto space_pos = message.find_last_of(' ');
 	if (space_pos == std::string::npos or space_pos == 3 /* Exclude the first 'space' sym */) {
 		BLE_reply = "ERROR: Unknown command format!\n"
@@ -457,7 +479,8 @@ void relay_handler(const std::string& message) {
 	Serial.print(BLE_reply.c_str());
 }
 
-/** TODO: Remake a algorythm - sensor sends a headher of the message, humidity and temperature handlers will be united to one*/
+/** TODO: Remake a algorythm - sensor sends a headher of the message,
+ * humidity and temperature handlers will be united to one*/
 void humidity_handler(const std::string& message) {
 	/** TODO: Now algorythm support only two-digit numbers, fix it */
 	// std::string&& tmp_str = message.substr(strlen("Humidity: "), 2);
