@@ -1,9 +1,9 @@
 #include <algorithm>
 
-#include <BLEDevice.h>
-#include <BLEUtils.h>
-#include <BLEServer.h>
-#include <BLE2902.h>
+// #include <BLEDevice.h>
+// #include <BLEUtils.h>
+// #include <BLEServer.h>
+// #include <BLE2902.h>
 
 #include <HardwareSerial.h>
 #include "RelayController.h"
@@ -37,9 +37,9 @@
 #define SERVICE_UUID "0000ffe0-0000-1000-8000-00805f9b34fb"
 #define TO_PHONE_CHARACTERISTIC_UUID "0000ffe1-0000-1000-8000-00805f9b34fb"
 
-BLEServer *pServer;
-BLECharacteristic *p_to_phone_characteristic;
-BLECharacteristic *p_to_sensor_characteristic;
+// BLEServer *pServer;
+// BLECharacteristic *p_to_phone_characteristic;
+// BLECharacteristic *p_to_sensor_characteristic;
 
 bool deviceConnected = false;
 bool oldDeviceConnected = false;
@@ -75,9 +75,7 @@ struct Command {
 		handler = command_handler;
 	}
 	
-	~Command() {
-
-	}
+	~Command() {}
 };
 
 /**
@@ -94,6 +92,9 @@ void inflow_low_handler(const std::string& message);
 void inflow_high_handler(const std::string& message);
 void exhaust_low_handler(const std::string& message);
 void exhaust_high_handler(const std::string& message);
+void get_handler(const std::string& message);
+void post_handler(const std::string& message);
+void rand_handler(const std::string& message);
 
 void parse_message(const std::string& message); 
 
@@ -112,76 +113,84 @@ static const std::vector<Command> command_list = {
 												  Command("inflow_high", inflow_high_handler),
 												  Command("exhaust_low", exhaust_low_handler),
 												  Command("exhaust_high", exhaust_high_handler),
+												  Command("get", get_handler),
+												  Command("post", post_handler),
+												  Command("rand", rand_handler)
 												  };	
 
-class MyServerCallbacks : public BLEServerCallbacks
-{
-	void onConnect(BLEServer *pServer)
-	{
-		deviceConnected = true;
-		BLEDevice::startAdvertising();
-	};
+// class MyServerCallbacks : public BLEServerCallbacks
+// {
+// 	void onConnect(BLEServer *pServer)
+// 	{
+// 		deviceConnected = true;
+// 		BLEDevice::startAdvertising();
+// 	};
 
-	void onDisconnect(BLEServer *pServer)
-	{
-		deviceConnected = false;
-	}
-};
+// 	void onDisconnect(BLEServer *pServer)
+// 	{
+// 		deviceConnected = false;
+// 	}
+// };
 
-class MyCallbacks : public BLECharacteristicCallbacks
-{
-	void onWrite(BLECharacteristic *pCharacteristic)
-	{
-		std::string rxValue = pCharacteristic->getValue();
+// class MyCallbacks : public BLECharacteristicCallbacks
+// {
+// 	void onWrite(BLECharacteristic *pCharacteristic)
+// 	{
+// 		std::string rxValue = pCharacteristic->getValue();
 
-		if (rxValue.length() > 0)
-		{
-			Serial.println("*********");
-			Serial.println(rxValue.c_str());
-			parse_message(rxValue);
-			Serial.println("*********");
+// 		if (rxValue.length() > 0)
+// 		{
+// 			Serial.println(rxValue.c_str());
+// 			parse_message(rxValue);
 
-			// Calculate border values
-			uint8_t step_value = (hum_max - hum_min) * 0.2;
+// 			// Calculate border values
+// 			uint8_t step_value = (hum_max - hum_min) * 0.2;
 
-			if (step_value < HUMIDITY_SENSOR_ACCURACY) 
-				step_value = HUMIDITY_SENSOR_ACCURACY;
-			// Serial.printf("DEBUG: step_value: %d\n", step_value);
+// 			if (step_value < HUMIDITY_SENSOR_ACCURACY) 
+// 				step_value = HUMIDITY_SENSOR_ACCURACY;
+// 			// Serial.printf("DEBUG: step_value: %d\n", step_value);
 
-			if ((curr_hum_value < hum_min + step_value) or (curr_hum_value > hum_max - step_value)) {
-				BLE_reply_to_sensor = "S5\n";
-			}
-			else {
-				BLE_reply_to_sensor = "S30\n";
-			}
-			// Serial.printf("DEBUG: reply %s\n",
-			// BLE_reply_to_sensor.c_str());
+// 			if ((curr_hum_value < hum_min + step_value) or (curr_hum_value > hum_max - step_value)) {
+// 				BLE_reply_to_sensor = "S5\n";
+// 			}
+// 			else {
+// 				BLE_reply_to_sensor = "S30\n";
+// 			}
+// 			// Serial.printf("DEBUG: reply %s\n",
+// 			// BLE_reply_to_sensor.c_str());
 
-		}
-	}
+// 		}
+// 	}
 
-	void onRead(BLECharacteristic* pCharacteristic) {
-		pCharacteristic->setValue(BLE_reply);
-		BLE_reply.clear();
-	}
+// 	void onRead(BLECharacteristic* pCharacteristic) {
+// 		pCharacteristic->setValue(BLE_reply);
+// 		Serial.println("Read callback was called");
+// 		BLE_reply.clear();
+// 	}
 
-	void onNotify(BLECharacteristic* pCharacteristic) {
-		pCharacteristic->setValue(BLE_reply);
-		BLE_reply.clear();
-	}
-};
+// 	void onNotify(BLECharacteristic* pCharacteristic) {
+// 		pCharacteristic->setValue(BLE_reply);
+// 		Serial.println("Notify callback was called");
+// 		BLE_reply.clear();
+// 	}
 
-class MyToSensorCallbacks : public BLECharacteristicCallbacks
-{
-	void onRead(BLECharacteristic* pCharacteristic) {
-		pCharacteristic->setValue(BLE_reply_to_sensor);
-		BLE_reply_to_sensor.clear();
-	}
+// 	void onStatus(BLECharacteristic* pCharacteristic, Status s, uint32_t code) {
+// 		Serial.print("On status called with status: ");
+// 		Serial.println(std::to_string(s).c_str());
+// 	}
+// };
 
-	void onWrite(BLECharacteristic* pCharacteristic) {
-		Serial.printf("%s\n", pCharacteristic->getValue().c_str());
-	}
-};
+// class MyToSensorCallbacks : public BLECharacteristicCallbacks
+// {
+// 	void onRead(BLECharacteristic* pCharacteristic) {
+// 		pCharacteristic->setValue(BLE_reply_to_sensor);
+// 		BLE_reply_to_sensor.clear();
+// 	}
+
+// 	void onWrite(BLECharacteristic* pCharacteristic) {
+// 		Serial.printf("%s\n", pCharacteristic->getValue().c_str());
+// 	}
+// };
 
 /*
     Wi-Fi part
@@ -191,117 +200,105 @@ class MyToSensorCallbacks : public BLECharacteristicCallbacks
 const char *ssid = "AKADO-9E4C";
 const char *password = "90704507";
 
-const String endpoint = "http://api.openweathermap.org/data/2.5/weather?q=Moscow,ru,pt&APPID=";
-const String key = "256d7e87b980dc930dc4f460308892e1";
+const String url = "http://84.201.156.30:8000/";
 
-const char *ntpServer = "pool.ntp.org";
-const long gmtOffset_sec = 3600;
-const int daylightOffset_sec = 3600;
-
-void handleReceivedMessage(String message)
-{
-	StaticJsonDocument<1500> doc; // Memory pool. Поставил наугад для демонстрации
-
-	DeserializationError error = deserializeJson(doc, message);
-
-	// Test if parsing succeeds.
-	if (error)
-	{
-		Serial.print(F("deserializeJson() failed: "));
-		Serial.println(error.c_str());
-		return;
-	}
-
-	Serial.println();
-	Serial.println("----- DATA FROM OPENWEATHER ----");
-
-	const char *name = doc["name"];
-	Serial.print("City: ");
-	Serial.println(name);
-
-	int timezone = doc["timezone"];
-	Serial.print("Timezone: ");
-	Serial.println(timezone);
-
-	int humidity = doc["main"]["humidity"];
-	Serial.print("Humidity: ");
-	Serial.println(humidity);
-
-	uint16_t sea_level = doc["main"]["sea_level"];
-	Serial.print("Sea level: ");
-	Serial.println(sea_level);
-
-	Serial.println("------------------------------");
-}
-
+HTTPClient http;
 //====================================================================
 
+hw_timer_t *tim1;
+
+bool is_tim = false;
+
+void IRAM_ATTR onTimer(){
+	is_tim = true;
+}
+
+// Endpoints
+String temp_endpoint("hub/temperature");
+String hum_endpoint("hub/humidity");
+String log_endpoint("hub/log");
+
+// REST API functions
+void POST_log();
+void POST_temp();
+void POST_hum();
+
+constexpr uint8_t hub_id = 22;
+constexpr uint8_t sensor_id = hub_id;
 
 void setup()
 {
 	Serial.begin(115200);
-	Serial.println("Starting BLE work!");
+	// Serial.println("Starting BLE work!");
 
-	BLEDevice::init("ESP-32-BLE-Server");
-	pServer = BLEDevice::createServer();
-	pServer->setCallbacks(new MyServerCallbacks());
+	// BLEDevice::init("ESP-32-BLE-Server");
+	// pServer = BLEDevice::createServer();
+	// pServer->setCallbacks(new MyServerCallbacks());
 
-	BLEService *pService = pServer->createService(SERVICE_UUID);
-	p_to_phone_characteristic = pService->createCharacteristic(
-		TO_PHONE_CHARACTERISTIC_UUID,
-		BLECharacteristic::PROPERTY_READ |
-		BLECharacteristic::PROPERTY_WRITE);
+	// BLEService *pService = pServer->createService(SERVICE_UUID);
+	// p_to_phone_characteristic = pService->createCharacteristic(
+	// 	TO_PHONE_CHARACTERISTIC_UUID,
+	// 	BLECharacteristic::PROPERTY_READ |
+	// 	BLECharacteristic::PROPERTY_WRITE |
+	// 	BLECharacteristic::PROPERTY_NOTIFY |
+	// 	BLECharacteristic::PROPERTY_INDICATE
+	// );
 		
-	// p_to_phone_characteristic->setValue("Hello World says Neil");
-	p_to_phone_characteristic->setCallbacks(new MyCallbacks());
-	p_to_phone_characteristic->addDescriptor(new BLE2902());
+	// // p_to_phone_characteristic->setValue("Hello World says Neil");
+	// p_to_phone_characteristic->setCallbacks(new MyCallbacks());
+	// p_to_phone_characteristic->addDescriptor(new BLE2902());
 
-	p_to_sensor_characteristic = pService->createCharacteristic(
-		TO_SENSOR_CHARACTERISTIC_UUID,
-		BLECharacteristic::PROPERTY_READ |
-		BLECharacteristic::PROPERTY_WRITE);
+	// p_to_sensor_characteristic = pService->createCharacteristic(
+	// 	TO_SENSOR_CHARACTERISTIC_UUID,
+	// 	BLECharacteristic::PROPERTY_READ |
+	// 	BLECharacteristic::PROPERTY_WRITE |
+	// 	BLECharacteristic::PROPERTY_NOTIFY |
+	// 	BLECharacteristic::PROPERTY_BROADCAST |
+	// 	BLECharacteristic::PROPERTY_INDICATE |
+	// 	BLECharacteristic::PROPERTY_WRITE_NR
+	// );
 
-	p_to_sensor_characteristic->setCallbacks(new MyToSensorCallbacks());
-	p_to_sensor_characteristic->addDescriptor(new BLE2902());
+	// p_to_sensor_characteristic->setCallbacks(new MyToSensorCallbacks());
+	// p_to_sensor_characteristic->addDescriptor(new BLE2902());
 
-	pService->start();
+	// pService->start();
 
-	// this still is working for backward compatibility BLEAdvertising
-	// *pAdvertising = pServer->getAdvertising();
-	BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
-	pAdvertising->addServiceUUID(SERVICE_UUID);
+	// // this still is working for backward compatibility BLEAdvertising
+	// // *pAdvertising = pServer->getAdvertising();
+	// BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+	// pAdvertising->addServiceUUID(SERVICE_UUID);
 	// pAdvertising->setScanResponse(false);
-	pAdvertising->setScanResponse(true);
-	pAdvertising->setMinPreferred(0x06); // functions that help with iPhone connections issue
-	pAdvertising->setMinPreferred(0x12);
-	BLEDevice::startAdvertising();
-	Serial.println("Characteristic defined! Now you can read it in your phone!");
+	// // pAdvertising->setScanResponse(true);
+	// pAdvertising->setMinPreferred(0x06); // functions that help with iPhone connections issue
+	// pAdvertising->setMinPreferred(0x12);
+	// BLEDevice::startAdvertising();
+	// Serial.println("Characteristic defined! Now you can read it in your phone!");
 
 
 	// подключаемся к Wi-Fi сети
 	WiFi.begin(ssid, password);
 
-	/* TODO: Написать нормальный обработчик команд */
+	/** TODO: Написать нормальный обработчик команд */
 
 	while (WiFi.status() != WL_CONNECTED)
 	{
 		delay(1000);
-		Serial.println("Соединяемся с Wi-Fi..");
+		Serial.println("Connecting to Wi-Fi..");
 	}
 
-	Serial.println("Соединение с Wi-Fi установлено");
+	Serial.println("The Wi-Fi connection is established");
 
-	bool success = Ping.ping("developer.alexanderklimov.ru", 3);
+	tim1 = timerBegin(0, 8000 - 1, true);
+	timerAttachInterrupt(tim1, &onTimer, true);
+	timerAlarmWrite(tim1, 6000000 - 1, true);
+	timerAlarmEnable(tim1);
 
-	if (!success)
-	{
-		Serial.println("Ping failed");
-		return;
-	}
-
-	Serial.println("Ping succesful.");
-
-	configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+	// Send data on start to locate that the MCU is started normally
+	POST_hum();
+	delay(100);
+	POST_temp();
+	delay(100);
+	POST_log();
 }
 
 void loop()
@@ -314,40 +311,76 @@ void loop()
 	//  congestion, if too many packets are sent
 	// }
 
+	/**
+	 * TODO: Disable BLE part to test host-to-server bridge
+	*/
 	// disconnecting
-	if (!deviceConnected && oldDeviceConnected)
-	{
-		delay(500);					 // give the bluetooth stack the chance to get things ready
-		pServer->startAdvertising(); // restart advertising
-		Serial.println("start advertising");
-		oldDeviceConnected = deviceConnected;
-	}	
-	// connecting
-	if (deviceConnected && !oldDeviceConnected)
-	{
-		// do stuff here on connecting
-		oldDeviceConnected = deviceConnected;
-	}
+	// if (!deviceConnected && oldDeviceConnected)
+	// {
+	// 	delay(500);					 // give the bluetooth stack the chance to get things ready
+	// 	pServer->startAdvertising(); // restart advertising
+	// 	Serial.println("start advertising");
+	// 	oldDeviceConnected = deviceConnected;
+	// }	
+	// // connecting
+	// if (deviceConnected && !oldDeviceConnected)
+	// {
+	// 	// do stuff here on connecting
+	// 	oldDeviceConnected = deviceConnected;
+	// }
 
-	if (Serial.available() >= 1) {
-		char sym[1024];
-		Serial.read(sym, Serial.available());
+	// if (Serial.available() >= 1) {
+	// 	char sym[1024];
+	// 	Serial.read(sym, Serial.available());
 
-		BLE_reply.append(sym);
+	// 	BLE_reply.append(sym);
 		
-		p_to_phone_characteristic->notify();
+	// 	// p_to_phone_characteristic->notify();
+	// 	p_to_phone_characteristic->indicate();
 
-		Serial.print("Try to send ");
-		Serial.println(sym);
-	}
+	// 	Serial.print("Try to send ");
+	// 	Serial.println(sym);
+	// }
 
 	/** TODO: Make a more intellegance check. For example - starts a
 	 * timer and wait for it */
 	// if (pServer->getConnectedCount() < 2) { BLE_reply = "ERROR:
 	//  Sensor disconnected!\n"; debug(BLE_reply);
 	// }
-	compare_hum();
-	delay(1000);
+	// compare_hum();
+	// delay(1000);
+
+	if (Serial.available() >= 1) {
+		char sym[Serial.available()];
+		Serial.read(sym, Serial.available());
+
+		parse_message(std::string(sym));
+	}
+
+	if (is_tim) {
+		// Check the current connection status
+		if ((WiFi.status() == WL_CONNECTED))
+		{	
+			// Roll for log message
+			if (random(1, 5) == 1) {
+				POST_log();
+			}
+			else {
+				POST_temp();
+				POST_hum();
+			}
+		}
+		else {
+			WiFi.reconnect();
+
+			while (WiFi.status() != WL_CONNECTED) {
+				delay(1000);
+			}
+		}
+
+		is_tim = false;
+	}
+
 }
 
 void compare_hum() {
@@ -366,7 +399,7 @@ void compare_hum() {
 
 	if (curr_hum_value > 80) {
 		// Serial.println("ALARM!!!");
-		p_to_phone_characteristic->setValue("ALARM!!!");
+		// p_to_phone_characteristic->setValue("ALARM!!!");
 	}
 
 	if (curr_hum_value < hum_min) {
@@ -636,6 +669,70 @@ void exhaust_high_handler(const std::string& message) {
 	}
 }
 
+void get_handler(const std::string& message) {
+	Serial.print("ECHO: ");
+	Serial.println(message.c_str());
+
+	// std::string args;
+	// uint8_t header_size = strlen("get ");
+	// if (header_size < message.size()) {
+	// 	args = message.substr(header_size, message.size() - header_size);
+	// }
+
+	String endpoint;
+
+	// Check the current connection status
+	if ((WiFi.status() == WL_CONNECTED))
+	{ 
+		HTTPClient http;
+
+		http.begin(url);
+		int httpCode = http.GET(); // Делаем запрос
+		
+		if (httpCode > 0)
+		{
+			String payload = http.getString();
+			Serial.println(httpCode);
+			Serial.println(payload);
+		}
+		else
+		{
+			Serial.println("HTTP-request error");
+		}
+
+		http.end();
+	}
+}
+
+void post_handler(const std::string& message) {
+	Serial.print("ECHO: ");
+	Serial.println(message.c_str());
+
+	std::string args;
+	uint8_t header_size = strlen("post ");
+	if (header_size < message.size()) {
+		args = message.substr(header_size, message.size() - header_size);
+	}
+
+	if (args == "log") {
+		POST_log();
+	}
+	else if (args == "temp") {
+		POST_temp();
+	}
+	else if (args == "hum") {
+		POST_hum();
+	}
+	else {
+		Serial.println("Unkwonw argument!");
+	}
+
+}
+
+void rand_handler(const std::string& message) {
+	Serial.println(random(1, 5));
+}
+
 /** TODO: This will be work only if the message starts with a command*/
 void parse_message(const std::string& message) {
 	for (uint8_t i = 0; i < command_list.size(); ++i) {
@@ -658,4 +755,134 @@ bool is_number(const std::string& s)
 {
     return !s.empty() && std::find_if(s.begin(), 
         s.end(), [](unsigned char c) { return !std::isdigit(c); }) == s.end();
+}
+
+void POST_log() {
+	StaticJsonDocument<128> query;
+
+	query["log_value"] = "Just send some value to test Arduino JSON library and Arduino HTTP";
+	query["hub_id"] = hub_id; 
+
+	String serialized_query;
+	serializeJson(query, serialized_query);
+
+	Serial.println(serialized_query);
+
+	http.begin(url + log_endpoint);
+	int httpCode = http.POST(serialized_query);
+
+	if (httpCode > 0) {
+		String payload = http.getString();
+		Serial.println(httpCode);
+		Serial.println(payload);
+
+		// StaticJsonDocument<128> reply;
+		// DeserializationError error = deserializeJson(reply, payload);
+
+		// if (error) {
+		// 	Serial.println("Deserialization error!");
+		// 	return;
+		// }
+
+		// if (reply["status"] != "OK") {
+		// 	Serial.println(httpCode);
+		// 	Serial.println(payload);
+		// }
+		// else {
+		// 	Serial.println("OK");
+		// }
+	}
+	else {
+		Serial.println("HTTP-request error");
+	}
+
+	http.end();
+}
+
+void POST_temp() {
+	StaticJsonDocument<128> query;
+
+	query["temperature_value"] = String(random(-2000, 2100) / 100.);
+	query["hub_id"] = hub_id;
+	query["sensor_id"] = sensor_id; 
+
+	String serialized_query;
+	serializeJson(query, serialized_query);
+
+	Serial.println(serialized_query);
+
+	http.begin(url + temp_endpoint);
+	int httpCode = http.POST(serialized_query);
+
+	if (httpCode > 0) {
+		String payload = http.getString();
+		
+		Serial.println(httpCode);
+		Serial.println(payload);
+
+		// StaticJsonDocument<128> reply;
+		// DeserializationError error = deserializeJson(reply, payload);
+
+		// if (error) {
+		// 	Serial.println("Deserialization error!");
+		// 	return;
+		// }
+
+		// if (reply["status"] != "OK") {
+		// 	Serial.println(httpCode);
+		// 	Serial.println(payload);
+		// }
+		// else {
+		// 	Serial.println("OK");
+		// }
+	}
+	else {
+		Serial.println("HTTP-request error");
+	}
+
+	http.end();
+}
+
+void POST_hum() {
+	StaticJsonDocument<128> query;
+
+	query["humidity_value"] = String(random(20, 81));
+	query["hub_id"] = hub_id;
+	query["sensor_id"] = sensor_id; 
+
+	String serialized_query;
+	serializeJson(query, serialized_query);
+
+	Serial.println(serialized_query);
+
+	http.begin(url + hum_endpoint);
+	int httpCode = http.POST(serialized_query);
+
+	if (httpCode > 0) {
+		String payload = http.getString();
+
+		Serial.println(httpCode);
+		Serial.println(payload);
+
+		// StaticJsonDocument<128> reply;
+		// DeserializationError error = deserializeJson(reply, payload);
+
+		// if (error) {
+		// 	Serial.println("Deserialization error!");
+		// 	return;
+		// }
+
+		// if (reply["status"] != "OK") {
+		// 	Serial.println(httpCode);
+		// 	Serial.println(payload);
+		// }
+		// else {
+		// 	Serial.println("OK");
+		// }
+	}
+	else {
+		Serial.println("HTTP-request error");
+	}
+
+	http.end();	
 }
