@@ -42,8 +42,8 @@
 #define BATTERY_SERVICE_UUID "180F"
 #define BATTERY_CHAR_UUID "2A19"
 
-#define SERIAL_SERVICE_UUID "1101"
-#define SERIAL_CHAR_UUID "2A9F"
+#define SERIAL_SERVICE_UUID "FFF0"
+#define SERIAL_CHAR_UUID "FFF1"
 
 // Set UUID's same as UUID on BLE module (MLT-BT05)
 // #define SERVICE_UUID "0000ffe0-0000-1000-8000-00805f9b34fb"
@@ -114,6 +114,7 @@ void rand_handler(const std::string& message);
 void start_handler(const std::string& message);
 void stop_handler(const std::string& message);
 void period_handler(const std::string& message);
+void ble_handler(const std::string& message);
 
 void parse_message(const std::string& message); 
 
@@ -137,7 +138,8 @@ static const std::vector<Command> command_list = {
 												  Command("rand", rand_handler),
 												  Command("start", start_handler),
 												  Command("stop", stop_handler),
-												  Command("period", period_handler)
+												  Command("period", period_handler),
+												  Command("ble", ble_handler)
 												  };	
 
 class MyServerCallbacks : public BLEServerCallbacks
@@ -145,6 +147,9 @@ class MyServerCallbacks : public BLEServerCallbacks
 	void onConnect(BLEServer *pServer)
 	{
 		deviceConnected = true;
+
+		Serial.println("DEBUG: New device connected");
+
 		BLEDevice::startAdvertising();
 	};
 
@@ -296,6 +301,17 @@ class SerialCharacteristicCallbacks : public BLECharacteristicCallbacks
 		BLE_reply.clear();
 	}
 
+	void onWrite(BLECharacteristic* pCharacteristic) {
+		std::string rxValue = pCharacteristic->getValue();
+
+		if (rxValue.length() > 0)
+		{
+			Serial.println(rxValue.c_str());
+		}
+
+		Serial.println("Write callback was called");
+	}
+
 	void onNotify(BLECharacteristic* pCharacteristic) {
 		pCharacteristic->setValue(BLE_reply);
 		Serial.println("Notify callback was called");
@@ -440,24 +456,24 @@ void setup()
 
 	/** TOOD: Create defines to timer period values and rename timers */
 	// Set timer to 30 mins
-	tim2 = timerBegin(1, 8000 - 1, true);
-	timerAttachInterrupt(tim2, &onLongTimer, true);
-	timerAlarmWrite(tim2, 18000000 - 1, true);
-	timerAlarmEnable(tim2);
+	// tim2 = timerBegin(1, 8000 - 1, true);
+	// timerAttachInterrupt(tim2, &onLongTimer, true);
+	// timerAlarmWrite(tim2, 18000000 - 1, true);
+	// timerAlarmEnable(tim2);
 
 	// tim1 = timerBegin(0, 8000 - 1, true);
 	// timerAttachInterrupt(tim1, &onTimer, true);
 	// timerAlarmWrite(tim1, 6000000 - 1, true);
 	// timerAlarmEnable(tim1);
-	tim1 = timerBegin(0, 8000 - 1, true);
-	timerAttachInterrupt(tim1, &onTimer, true);
-	timerAlarmWrite(tim1, 10000 - 1, true);
-	timerAlarmEnable(tim1);
+	// tim1 = timerBegin(0, 8000 - 1, true);
+	// timerAttachInterrupt(tim1, &onTimer, true);
+	// timerAlarmWrite(tim1, 10000 - 1, true);
+	// timerAlarmEnable(tim1);
 
 	// Send data on start to locate that the MCU is started normally
-	POST_hum();
-	delay(100);
-	POST_temp();
+	// POST_hum();
+	// delay(100);
+	// POST_temp();
 }
 
 void loop()
@@ -507,8 +523,8 @@ void loop()
 		// Check the current connection status
 		if ((WiFi.status() == WL_CONNECTED))
 		{	
-			POST_temp();
-			POST_hum();
+			// POST_temp();
+			// POST_hum();
 		}
 		else {
 			// WiFi.reconnect();
@@ -519,7 +535,7 @@ void loop()
 			// }
 		}
 
-		Serial.println("TEST");
+		// Serial.println("TEST");
 		is_tim = false;
 	}
 
@@ -899,6 +915,18 @@ void period_handler(const std::string& message) {
 	}
 
 	/** TODO: Calculate timer parameters */
+}
+
+void ble_handler(const std::string& message) {
+	uint8_t header_size = strlen("ble ");
+	std::string tmp = message.substr(header_size, (message.size() - 2) - header_size);
+
+	p_serial_characteristic->setValue(tmp);
+	
+	if (tmp[0] == 'n') {
+		p_serial_characteristic->notify();
+	}
+
 }
 
 /** TODO: This will be work only if the message starts with a command*/
