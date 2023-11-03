@@ -155,6 +155,7 @@ class MyServerCallbacks : public BLEServerCallbacks
 
 	void onDisconnect(BLEServer *pServer)
 	{
+		Serial.println("DEBUG: Device disconnected");
 		deviceConnected = false;
 	}
 };
@@ -191,15 +192,15 @@ class HumidityCharacteristicCallbacks : public BLECharacteristicCallbacks
 	}
 
 	void onRead(BLECharacteristic* pCharacteristic) {
-		pCharacteristic->setValue(BLE_reply);
+		// pCharacteristic->setValue(BLE_reply);
 		Serial.println("Read callback was called");
-		BLE_reply.clear();
+		// BLE_reply.clear();
 	}
 
 	void onNotify(BLECharacteristic* pCharacteristic) {
-		pCharacteristic->setValue(BLE_reply);
+		// pCharacteristic->setValue(BLE_reply);
 		Serial.println("Notify callback was called");
-		BLE_reply.clear();
+		// BLE_reply.clear();
 	}
 
 	void onStatus(BLECharacteristic* pCharacteristic, Status s, uint32_t code) {
@@ -239,15 +240,15 @@ class TemperatureCharacteristicCallbacks : public BLECharacteristicCallbacks
 	}
 
 	void onRead(BLECharacteristic* pCharacteristic) {
-		pCharacteristic->setValue(BLE_reply);
+		// pCharacteristic->setValue(BLE_reply);
 		Serial.println("Read callback was called");
-		BLE_reply.clear();
+		// BLE_reply.clear();
 	}
 
 	void onNotify(BLECharacteristic* pCharacteristic) {
-		pCharacteristic->setValue(BLE_reply);
+		// pCharacteristic->setValue(BLE_reply);
 		Serial.println("Notify callback was called");
-		BLE_reply.clear();
+		// BLE_reply.clear();
 	}
 
 	void onStatus(BLECharacteristic* pCharacteristic, Status s, uint32_t code) {
@@ -276,15 +277,15 @@ class BatteryCharacteristicCallbacks : public BLECharacteristicCallbacks
 	}
 
 	void onRead(BLECharacteristic* pCharacteristic) {
-		pCharacteristic->setValue(BLE_reply);
+		// pCharacteristic->setValue(BLE_reply);
 		Serial.println("Read callback was called");
-		BLE_reply.clear();
+		// BLE_reply.clear();
 	}
 
 	void onNotify(BLECharacteristic* pCharacteristic) {
-		pCharacteristic->setValue(BLE_reply);
+		// pCharacteristic->setValue(BLE_reply);
 		Serial.println("Notify callback was called");
-		BLE_reply.clear();
+		// BLE_reply.clear();
 	}
 
 	void onStatus(BLECharacteristic* pCharacteristic, Status s, uint32_t code) {
@@ -296,9 +297,9 @@ class BatteryCharacteristicCallbacks : public BLECharacteristicCallbacks
 class SerialCharacteristicCallbacks : public BLECharacteristicCallbacks
 {
 	void onRead(BLECharacteristic* pCharacteristic) {
-		pCharacteristic->setValue(BLE_reply);
+		// pCharacteristic->setValue(BLE_reply);
 		Serial.println("Read callback was called");
-		BLE_reply.clear();
+		// BLE_reply.clear();
 	}
 
 	void onWrite(BLECharacteristic* pCharacteristic) {
@@ -313,9 +314,9 @@ class SerialCharacteristicCallbacks : public BLECharacteristicCallbacks
 	}
 
 	void onNotify(BLECharacteristic* pCharacteristic) {
-		pCharacteristic->setValue(BLE_reply);
+		// pCharacteristic->setValue(BLE_reply);
 		Serial.println("Notify callback was called");
-		BLE_reply.clear();
+		// BLE_reply.clear();
 	}
 
 	void onStatus(BLECharacteristic* pCharacteristic, Status s, uint32_t code) {
@@ -419,7 +420,8 @@ void setup()
 		SERIAL_CHAR_UUID,
 		BLECharacteristic::PROPERTY_READ |
 		BLECharacteristic::PROPERTY_WRITE |
-		BLECharacteristic::PROPERTY_NOTIFY
+		BLECharacteristic::PROPERTY_NOTIFY |
+		BLECharacteristic::PROPERTY_INDICATE
 	);
 
 	p_serial_characteristic->setCallbacks(new SerialCharacteristicCallbacks());
@@ -937,6 +939,8 @@ void parse_message(const std::string& message) {
 			return;
 		}
 	}
+
+	Serial.println("ERROR: Unknown command!");
 }
 
 #if DEBUG == 1
