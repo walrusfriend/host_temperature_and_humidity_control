@@ -193,18 +193,18 @@ class HumidityCharacteristicCallbacks : public BLECharacteristicCallbacks
 
 	void onRead(BLECharacteristic* pCharacteristic) {
 		// pCharacteristic->setValue(BLE_reply);
-		Serial.println("Read callback was called");
+		Serial.println("Read Humidity callback was called");
 		// BLE_reply.clear();
 	}
 
 	void onNotify(BLECharacteristic* pCharacteristic) {
 		// pCharacteristic->setValue(BLE_reply);
-		Serial.println("Notify callback was called");
+		Serial.println("Notify Humidity callback was called");
 		// BLE_reply.clear();
 	}
 
 	void onStatus(BLECharacteristic* pCharacteristic, Status s, uint32_t code) {
-		Serial.print("On status called with status: ");
+		Serial.print("Humidity On status called with status: ");
 		Serial.println(std::to_string(s).c_str());
 	}
 };
@@ -241,18 +241,18 @@ class TemperatureCharacteristicCallbacks : public BLECharacteristicCallbacks
 
 	void onRead(BLECharacteristic* pCharacteristic) {
 		// pCharacteristic->setValue(BLE_reply);
-		Serial.println("Read callback was called");
+		Serial.println("Read Temperature callback was called");
 		// BLE_reply.clear();
 	}
 
 	void onNotify(BLECharacteristic* pCharacteristic) {
 		// pCharacteristic->setValue(BLE_reply);
-		Serial.println("Notify callback was called");
+		Serial.println("Notify Temperature callback was called");
 		// BLE_reply.clear();
 	}
 
 	void onStatus(BLECharacteristic* pCharacteristic, Status s, uint32_t code) {
-		Serial.print("On status called with status: ");
+		Serial.print("Temperature On status called with status: ");
 		Serial.println(std::to_string(s).c_str());
 	}
 };
@@ -278,31 +278,31 @@ class BatteryCharacteristicCallbacks : public BLECharacteristicCallbacks
 
 	void onRead(BLECharacteristic* pCharacteristic) {
 		// pCharacteristic->setValue(BLE_reply);
-		Serial.println("Read callback was called");
+		Serial.println("Read Battery callback was called");
 		// BLE_reply.clear();
 	}
 
 	void onNotify(BLECharacteristic* pCharacteristic) {
 		// pCharacteristic->setValue(BLE_reply);
-		Serial.println("Notify callback was called");
+		Serial.println("Notify Battery callback was called");
 		// BLE_reply.clear();
 	}
 
 	void onStatus(BLECharacteristic* pCharacteristic, Status s, uint32_t code) {
-		Serial.print("On status called with status: ");
+		Serial.print("Battery On status called with status: ");
 		Serial.println(std::to_string(s).c_str());
 	}
 };
 
 class SerialCharacteristicCallbacks : public BLECharacteristicCallbacks
 {
-	void onRead(BLECharacteristic* pCharacteristic) {
+	void onRead(BLECharacteristic* pCharacteristic, esp_ble_gatts_cb_param_t* param) {
 		// pCharacteristic->setValue(BLE_reply);
-		Serial.println("Read callback was called");
+		Serial.printf("Read Serial callback was called. Conn_id %d\n", param->read.conn_id);
 		// BLE_reply.clear();
 	}
 
-	void onWrite(BLECharacteristic* pCharacteristic) {
+	void onWrite(BLECharacteristic* pCharacteristic, esp_ble_gatts_cb_param_t* param) {
 		std::string rxValue = pCharacteristic->getValue();
 
 		if (rxValue.length() > 0)
@@ -310,18 +310,19 @@ class SerialCharacteristicCallbacks : public BLECharacteristicCallbacks
 			Serial.println(rxValue.c_str());
 		}
 
-		Serial.println("Write callback was called");
+		Serial.println("Write Serial callback was called");
 	}
 
 	void onNotify(BLECharacteristic* pCharacteristic) {
 		// pCharacteristic->setValue(BLE_reply);
-		Serial.println("Notify callback was called");
+		Serial.println("Notify Serial callback was called");
 		// BLE_reply.clear();
 	}
 
 	void onStatus(BLECharacteristic* pCharacteristic, Status s, uint32_t code) {
-		Serial.print("On status called with status: ");
-		Serial.println(std::to_string(s).c_str());
+		Serial.print("Serial On status called with status: ");
+		Serial.print(std::to_string(s).c_str());
+		Serial.printf(" with code %d\n", code);
 	}
 };
 
@@ -421,7 +422,9 @@ void setup()
 		BLECharacteristic::PROPERTY_READ |
 		BLECharacteristic::PROPERTY_WRITE |
 		BLECharacteristic::PROPERTY_NOTIFY |
-		BLECharacteristic::PROPERTY_INDICATE
+		BLECharacteristic::PROPERTY_INDICATE |
+		BLECharacteristic::PROPERTY_BROADCAST |
+		BLECharacteristic::PROPERTY_WRITE_NR
 	);
 
 	p_serial_characteristic->setCallbacks(new SerialCharacteristicCallbacks());
@@ -444,17 +447,17 @@ void setup()
 
 
 	// подключаемся к Wi-Fi сети
-	WiFi.begin(ssid, password);
+	// WiFi.begin(ssid, password);
 
 	/** TODO: Написать нормальный обработчик команд */
 
-	while (WiFi.status() != WL_CONNECTED)
-	{
-		delay(1000);
-		Serial.println("Connecting to Wi-Fi..");
-	}
+	// while (WiFi.status() != WL_CONNECTED)
+	// {
+		// delay(1000);
+		// Serial.println("Connecting to Wi-Fi..");
+	// }
 
-	Serial.println("The Wi-Fi connection is established");
+	// Serial.println("The Wi-Fi connection is established");
 
 	/** TOOD: Create defines to timer period values and rename timers */
 	// Set timer to 30 mins
