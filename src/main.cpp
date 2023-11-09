@@ -1,13 +1,11 @@
 #include <algorithm>
 
 #include <BLEDevice.h>
-#include <BLEUtils.h>
-#include <BLEServer.h>
+// #include <BLEUtils.h>
 #include <BLE2902.h>
 
 #include <HardwareSerial.h>
 #include "RelayController.h"
-
 
 #include <WiFi.h>
 #include <HTTPClient.h>
@@ -15,53 +13,37 @@
 #include <ESP32Ping.h>
 #include <time.h>
 
-// See the following for generating UUIDs:
-// https://www.uuidgenerator.net/
-/**
- * TODO: Create standart UUID for all data between sensor and host and
- * host and phone (if this feature will be available)
-*/
+#define DEBUG 1
 
 /**
  * TODO: 
  * - Add checks for all!
  * - Настройка частоты передачи
  * - Включить и выключить передачу
+ * - Count the number of connetion tries and handle infinity connetion
+ * - Rename variables
+ * - Try send data and only then reconnect to BLE server
+ * - Refactor code:
+ * 	 - move code parts to *.h/*.cpp files
+ * 	 - 
 */
 
-#define DEBUG 1
+static BLEUUID serial_service_uuid("0000ffe0-0000-1000-8000-00805f9b34fb");
+static BLEUUID serial_characteristic_uuid("0000ffe1-0000-1000-8000-00805f9b34fb");
 
-// #define SERVICE_UUID "4fafc201-1fb5-459e-8fcc-c5c9c331914b" 
-// #define TO_PHONE_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
-// #define TO_SENSOR_CHARACTERISTIC_UUID "bea03c8c-2cc5-11ee-be56-0242ac120002"
+static BLEClient *pClient;
+static BLERemoteCharacteristic *p_serial_characteristic;
 
-#define ENV_SERVICE_UUID "181A"
-#define TEMP_CHAR_UUID "2A6E"
-#define HUM_CHAR_UUID "2A6F"
+BLEAddress sensor_MAC_address("3C:A3:08:0D:75:41");
 
-#define BATTERY_SERVICE_UUID "180F"
-#define BATTERY_CHAR_UUID "2A19"
+bool doConnect = true;
+bool connected = false;
+bool doScan = false;
 
-#define SERIAL_SERVICE_UUID "FFF0"
-#define SERIAL_CHAR_UUID "FFF1"
-
-// Set UUID's same as UUID on BLE module (MLT-BT05)
-// #define SERVICE_UUID "0000ffe0-0000-1000-8000-00805f9b34fb"
-// #define TO_PHONE_CHARACTERISTIC_UUID "0000ffe1-0000-1000-8000-00805f9b34fb"
-
-BLEServer *p_server;
-BLECharacteristic *p_hum_characteristic;
-BLECharacteristic *p_temp_characteristic;
-BLECharacteristic *p_battery_characteristic;
-BLECharacteristic *p_serial_characteristic;
-
-bool deviceConnected = false;
-bool oldDeviceConnected = false;
 uint8_t txValue = 0;
 
 uint8_t hum_min = 53;
 uint8_t hum_max = 80;
-void compare_hum();
 
 uint8_t curr_hum_value = 0xff;
 uint8_t curr_temp_value = 15;
@@ -75,12 +57,94 @@ const uint8_t HUMIDITY_SENSOR_ACCURACY = 2;
 bool is_compressor_start = false;
 bool is_relay_controlled_by_user = false;
 
-
 /** TODO: Move this to RelayController */
 bool inflow_low_state = false;
 bool inflow_high_state = false;
 bool exhaust_low_state = false;
 bool exhaust_high_state = false;
+
+static void notifyCallback(
+	BLERemoteCharacteristic *pBLERemoteCharacteristic,
+	uint8_t *pData,
+	size_t length,
+	bool isNotify)
+{
+	Serial.print("Notify callback for characteristic ");
+	Serial.print(pBLERemoteCharacteristic->getUUID().toString().c_str());
+	Serial.print(" of data length ");
+	Serial.println(length);
+	Serial.print("data: ");
+	Serial.write(pData, length);
+	Serial.println();
+}
+
+class MyClientCallback : public BLEClientCallbacks
+{
+	void onConnect(BLEClient *pclient)
+	{
+		connected = false;
+	}
+
+	void onDisconnect(BLEClient *pclient)
+	{
+		connected = false;
+		Serial.println("onDisconnect");
+	}
+};
+
+void compare_hum();
+
+bool connectToServer()
+{
+	Serial.printf("Forming a connection to %s", sensor_MAC_address.toString().c_str());
+
+	pClient = BLEDevice::createClient();
+	Serial.println(" - Created client");
+
+	pClient->setClientCallbacks(new MyClientCallback());
+
+	if(pClient->connect(sensor_MAC_address) == false) {
+		Serial.println("Couldn't connect to remote BLE server!");
+		return false;
+	}
+
+	Serial.println(" - Connected to server");
+	pClient->setMTU(517); // set client to request maximum MTU from server (default is 23 otherwise)
+
+	BLERemoteService *p_serial_service = pClient->getService(serial_service_uuid);
+	if (p_serial_service == nullptr)
+	{
+		Serial.print("Failed to find our service UUID: ");
+		Serial.println(serial_service_uuid.toString().c_str());
+		pClient->disconnect();
+		return false;
+	}
+	Serial.println(" - Found serial service");
+
+	p_serial_characteristic = p_serial_service->getCharacteristic(serial_characteristic_uuid);
+	if (p_serial_service == nullptr)
+	{
+		Serial.print("Failed to find our characteristic UUID: ");
+		Serial.println(serial_characteristic_uuid.toString().c_str());
+		pClient->disconnect();
+		return false;
+	}
+	Serial.println(" - Found service characteristic");
+
+	// Read the value of the characteristic.
+	// if (pRemoteCharacteristic->canRead())
+	// {
+	// 	std::string value = pRemoteCharacteristic->readValue();
+	// 	Serial.print("The characteristic value was: ");
+	// 	Serial.println(value.c_str());
+	// }
+
+	if (p_serial_characteristic->canNotify())
+		p_serial_characteristic->registerForNotify(notifyCallback);
+
+	connected = true;
+	return true;
+}
 
 struct Command {
 	std::string name;
@@ -142,23 +206,6 @@ static const std::vector<Command> command_list = {
 												  Command("ble", ble_handler)
 												  };	
 
-class MyServerCallbacks : public BLEServerCallbacks
-{
-	void onConnect(BLEServer *pServer)
-	{
-		deviceConnected = true;
-
-		Serial.println("DEBUG: New device connected");
-
-		BLEDevice::startAdvertising();
-	};
-
-	void onDisconnect(BLEServer *pServer)
-	{
-		Serial.println("DEBUG: Device disconnected");
-		deviceConnected = false;
-	}
-};
 
 class HumidityCharacteristicCallbacks : public BLECharacteristicCallbacks
 {
@@ -189,23 +236,6 @@ class HumidityCharacteristicCallbacks : public BLECharacteristicCallbacks
 			// BLE_reply_to_sensor.c_str());
 
 		}
-	}
-
-	void onRead(BLECharacteristic* pCharacteristic) {
-		// pCharacteristic->setValue(BLE_reply);
-		Serial.println("Read Humidity callback was called");
-		// BLE_reply.clear();
-	}
-
-	void onNotify(BLECharacteristic* pCharacteristic) {
-		// pCharacteristic->setValue(BLE_reply);
-		Serial.println("Notify Humidity callback was called");
-		// BLE_reply.clear();
-	}
-
-	void onStatus(BLECharacteristic* pCharacteristic, Status s, uint32_t code) {
-		Serial.print("Humidity On status called with status: ");
-		Serial.println(std::to_string(s).c_str());
 	}
 };
 
@@ -238,94 +268,7 @@ class TemperatureCharacteristicCallbacks : public BLECharacteristicCallbacks
 
 		}
 	}
-
-	void onRead(BLECharacteristic* pCharacteristic) {
-		// pCharacteristic->setValue(BLE_reply);
-		Serial.println("Read Temperature callback was called");
-		// BLE_reply.clear();
-	}
-
-	void onNotify(BLECharacteristic* pCharacteristic) {
-		// pCharacteristic->setValue(BLE_reply);
-		Serial.println("Notify Temperature callback was called");
-		// BLE_reply.clear();
-	}
-
-	void onStatus(BLECharacteristic* pCharacteristic, Status s, uint32_t code) {
-		Serial.print("Temperature On status called with status: ");
-		Serial.println(std::to_string(s).c_str());
-	}
 };
-
-class BatteryCharacteristicCallbacks : public BLECharacteristicCallbacks
-{
-	void onWrite(BLECharacteristic *pCharacteristic)
-	{
-		std::string&& rx_value = pCharacteristic->getValue();
-
-		if (rx_value.length() > 0)
-		{
-			Serial.println(rx_value.c_str());
-
-			if (is_number(rx_value)) {
-				curr_battery_value = std::stoi(rx_value);
-
-				/** TODO: Do need to add an actual data check? */
-			}
-
-		}
-	}
-
-	void onRead(BLECharacteristic* pCharacteristic) {
-		// pCharacteristic->setValue(BLE_reply);
-		Serial.println("Read Battery callback was called");
-		// BLE_reply.clear();
-	}
-
-	void onNotify(BLECharacteristic* pCharacteristic) {
-		// pCharacteristic->setValue(BLE_reply);
-		Serial.println("Notify Battery callback was called");
-		// BLE_reply.clear();
-	}
-
-	void onStatus(BLECharacteristic* pCharacteristic, Status s, uint32_t code) {
-		Serial.print("Battery On status called with status: ");
-		Serial.println(std::to_string(s).c_str());
-	}
-};
-
-class SerialCharacteristicCallbacks : public BLECharacteristicCallbacks
-{
-	void onRead(BLECharacteristic* pCharacteristic, esp_ble_gatts_cb_param_t* param) {
-		// pCharacteristic->setValue(BLE_reply);
-		Serial.printf("Read Serial callback was called. Conn_id %d\n", param->read.conn_id);
-		// BLE_reply.clear();
-	}
-
-	void onWrite(BLECharacteristic* pCharacteristic, esp_ble_gatts_cb_param_t* param) {
-		std::string rxValue = pCharacteristic->getValue();
-
-		if (rxValue.length() > 0)
-		{
-			Serial.println(rxValue.c_str());
-		}
-
-		Serial.println("Write Serial callback was called");
-	}
-
-	void onNotify(BLECharacteristic* pCharacteristic) {
-		// pCharacteristic->setValue(BLE_reply);
-		Serial.println("Notify Serial callback was called");
-		// BLE_reply.clear();
-	}
-
-	void onStatus(BLECharacteristic* pCharacteristic, Status s, uint32_t code) {
-		Serial.print("Serial On status called with status: ");
-		Serial.print(std::to_string(s).c_str());
-		Serial.printf(" with code %d\n", code);
-	}
-};
-
 
 /*
     Wi-Fi part
@@ -373,78 +316,71 @@ void POST_hum();
 constexpr uint8_t hub_id = 22;
 constexpr uint8_t sensor_id = hub_id;
 
+/** TODO: Move this code to the right place */
+TaskHandle_t connect_task_handle;
+TaskHandle_t input_serial_task_handle;
+
+void task_connect(void* param) {
+
+	for(;;) {
+		// If the flag "doConnect" is true then we have scanned for and found the desired
+		// BLE Server with which we wish to connect.  Now we connect to it.  Once we are
+		// connected we set the connected flag to be true.
+		if (doConnect == true)
+		{
+			Serial.println("Try to connect");
+			// uint8_t number_of_unsuccessful_connections = 0;
+			while (connectToServer() == false) {
+				// ++number_of_unsuccessful_connections;
+
+				// if (number_of_unsuccessful_connections > 5) {
+				// 	Serial.println("ERROR: Failed to connect to the server!");
+				// 	break;
+				// }
+				vTaskDelay(500);
+			};
+			doConnect = false;
+
+			Serial.println("Connected!");
+		}
+
+		vTaskDelay(500);
+	}
+
+}
+
+void task_input_serial(void* param) {
+	for(;;) {
+		// Handle COM port input data
+		if (Serial.available() >= 1) {
+			char sym[Serial.available()];
+			Serial.read(sym, Serial.available());
+
+			parse_message(std::string(sym));
+		}
+
+		vTaskDelay(1);
+	}
+}
+
 void setup()
 {
 	Serial.begin(115200);
+
+	Serial.println("Start program!");
+	BLEDevice::init("DewPoint");
+
+	// Retrieve a Scanner and set the callback we want to use to be informed when we
+	// have detected a new device.  Specify that we want active scanning and start the
+	// scan to run for 5 seconds.
+	// BLEScan *pBLEScan = BLEDevice::getScan();
+	// pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
+	// pBLEScan->setInterval(1349);
+	// pBLEScan->setWindow(449);
+	// pBLEScan->setActiveScan(true);
+	// pBLEScan->start(5, false);
+
 	Serial.println("Starting BLE work!");
-
-	BLEDevice::init("DewPoint_host");
-	p_server = BLEDevice::createServer();
-	p_server->setCallbacks(new MyServerCallbacks());
-
-	BLEService *p_env_service = p_server->createService(ENV_SERVICE_UUID);
-
-	p_hum_characteristic = p_env_service->createCharacteristic(
-		HUM_CHAR_UUID,
-		BLECharacteristic::PROPERTY_WRITE |
-		BLECharacteristic::PROPERTY_NOTIFY
-	);
-
-	p_hum_characteristic->setCallbacks(new HumidityCharacteristicCallbacks());
-	p_hum_characteristic->addDescriptor(new BLE2902());
-	
-	p_temp_characteristic = p_env_service->createCharacteristic(
-		TEMP_CHAR_UUID,
-		BLECharacteristic::PROPERTY_WRITE |
-		BLECharacteristic::PROPERTY_NOTIFY
-	);
-
-	p_temp_characteristic->setCallbacks(new TemperatureCharacteristicCallbacks());
-	p_temp_characteristic->addDescriptor(new BLE2902());
-
-
-	BLEService *p_battery_service = p_server->createService(BATTERY_SERVICE_UUID);
-
-	p_battery_characteristic = p_battery_service->createCharacteristic(
-		BATTERY_CHAR_UUID,
-		BLECharacteristic::PROPERTY_WRITE |
-		BLECharacteristic::PROPERTY_NOTIFY
-	);
-
-	p_battery_characteristic->setCallbacks(new BatteryCharacteristicCallbacks());
-	p_battery_characteristic->addDescriptor(new BLE2902());
-
-
-	BLEService *p_serial_service = p_server->createService(SERIAL_SERVICE_UUID);
-
-	p_serial_characteristic = p_serial_service->createCharacteristic(
-		SERIAL_CHAR_UUID,
-		BLECharacteristic::PROPERTY_READ |
-		BLECharacteristic::PROPERTY_WRITE |
-		BLECharacteristic::PROPERTY_NOTIFY |
-		BLECharacteristic::PROPERTY_INDICATE |
-		BLECharacteristic::PROPERTY_BROADCAST |
-		BLECharacteristic::PROPERTY_WRITE_NR
-	);
-
-	p_serial_characteristic->setCallbacks(new SerialCharacteristicCallbacks());
-	p_serial_characteristic->addDescriptor(new BLE2902());
-
-	p_env_service->start();
-	p_battery_service->start();
-	p_serial_service->start();
-
-	// this still is working for backward compatibility BLEAdvertising
-	// *pAdvertising = pServer->getAdvertising();
-	BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
-	// pAdvertising->addServiceUUID(SERVICE_UUID);
-	pAdvertising->addServiceUUID(ENV_SERVICE_UUID);
-	pAdvertising->setScanResponse(true);
-	pAdvertising->setMinPreferred(0x06); // functions that help with iPhone connections issue
-	pAdvertising->setMinPreferred(0x12);
-	BLEDevice::startAdvertising();
-	Serial.println("Characteristic defined! Now you can read it in your phone!");
-
 
 	// подключаемся к Wi-Fi сети
 	// WiFi.begin(ssid, password);
@@ -479,70 +415,47 @@ void setup()
 	// POST_hum();
 	// delay(100);
 	// POST_temp();
+
+	xTaskCreate(task_connect, "task_connect", 2048, nullptr, 1, &connect_task_handle);
+	xTaskCreate(task_input_serial, "task_input_serial", 2048, nullptr, 1, &input_serial_task_handle);
 }
 
 void loop()
 {
-	// if (deviceConnected)
+	// if (is_tim) {
+	// 	// Check the current connection status
+	// 	if ((WiFi.status() == WL_CONNECTED))
+	// 	{	
+	// 		// POST_temp();
+	// 		// POST_hum();
+	// 	}
+	// 	else {
+	// 		// WiFi.reconnect();
+
+	// 		/** TODO: Add a timeout */
+	// 		// while (WiFi.status() != WL_CONNECTED) {
+	// 		// 	delay(1000);
+	// 		// }
+	// 	}
+
+	// 	// Serial.println("TEST");
+	// 	is_tim = false;
+	// }
+
+
+	// If we are connected to a peer BLE Server, update the characteristic each time we are reached
+	// with the current time since boot.
+	// if (connected)
 	// {
-	//  p_to_phone_characteristic->setValue((uint8_t*)test_reply,
-	//  strlen(test_reply)); p_to_phone_characteristic->notify();
-	//  txValue++; delay(10); // bluetooth stack will go into
-	//  congestion, if too many packets are sent
+	// 	if (Serial.available()) {
+	// 		p_serial_characteristic->writeValue(Serial.read());
+	// 	}
 	// }
-
-	/**
-	 * TODO: Disable BLE part to test host-to-server bridge
-	*/
-	// disconnecting
-	if (!deviceConnected && oldDeviceConnected)
-	{
-		delay(500);					 // give the bluetooth stack the chance to get things ready
-		p_server->startAdvertising(); // restart advertising
-		Serial.println("start advertising");
-		oldDeviceConnected = deviceConnected;
-	}	
-	// connecting
-	if (deviceConnected && !oldDeviceConnected)
-	{
-		// do stuff here on connecting
-		oldDeviceConnected = deviceConnected;
-	}
-
-	/** TODO: Make a more intellegance check. For example - starts a
-	 * timer and wait for it */
-	// if (pServer->getConnectedCount() < 2) { BLE_reply = "ERROR:
-	//  Sensor disconnected!\n"; debug(BLE_reply);
+	// else if (doScan)
+	// {
+	// 	Serial.println("Try to find BLE devices");
+	// 	BLEDevice::getScan()->start(0); // this is just example to start scan after disconnect, most likely there is better way to do it in arduino
 	// }
-	// compare_hum();
-	// delay(1000);
-
-	if (Serial.available() >= 1) {
-		char sym[Serial.available()];
-		Serial.read(sym, Serial.available());
-
-		parse_message(std::string(sym));
-	}
-
-	if (is_tim) {
-		// Check the current connection status
-		if ((WiFi.status() == WL_CONNECTED))
-		{	
-			// POST_temp();
-			// POST_hum();
-		}
-		else {
-			// WiFi.reconnect();
-
-			/** TODO: Add a timeout */
-			// while (WiFi.status() != WL_CONNECTED) {
-			// 	delay(1000);
-			// }
-		}
-
-		// Serial.println("TEST");
-		is_tim = false;
-	}
 
 }
 
@@ -923,15 +836,10 @@ void period_handler(const std::string& message) {
 }
 
 void ble_handler(const std::string& message) {
-	uint8_t header_size = strlen("ble ");
-	std::string tmp = message.substr(header_size, (message.size() - 2) - header_size);
+	// uint8_t header_size = strlen("ble ");
+	// std::string tmp = message.substr(header_size, (message.size() - 2) - header_size);
 
-	p_serial_characteristic->setValue(tmp);
-	
-	if (tmp[0] == 'n') {
-		p_serial_characteristic->notify();
-	}
-
+	p_serial_characteristic->writeValue("test");
 }
 
 /** TODO: This will be work only if the message starts with a command*/
