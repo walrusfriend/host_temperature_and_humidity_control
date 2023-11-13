@@ -179,6 +179,7 @@ void start_handler(const std::string& message);
 void stop_handler(const std::string& message);
 void period_handler(const std::string& message);
 void ble_handler(const std::string& message);
+void get_hub_handler(const std::string& message);
 
 void parse_message(const std::string& message); 
 
@@ -186,6 +187,9 @@ void debug(const std::string& debug_info);
 
 bool is_number(const std::string& s);
 
+// Парсер написан так, что не должно быть команды, которая является
+// началом другой команды, вроде get и get_hub. Команда get просто будет
+// вызываться раньше.
 static const std::vector<Command> command_list = {
 												  Command("curr_hum", curr_hum_handler),	
 												  Command("Error", error_handler),	
@@ -203,7 +207,8 @@ static const std::vector<Command> command_list = {
 												  Command("start", start_handler),
 												  Command("stop", stop_handler),
 												  Command("period", period_handler),
-												  Command("ble", ble_handler)
+												  Command("ble", ble_handler),
+												  Command("get_hub", get_hub_handler)
 												  };	
 
 
@@ -278,10 +283,27 @@ class TemperatureCharacteristicCallbacks : public BLECharacteristicCallbacks
 const char *ssid = "AKADO-9E4C";
 const char *password = "90704507";
 
-const String url = "http://84.201.156.30:8000/";
+const String url = "http://62.84.117.245:8000/";
 
 HTTPClient http;
 //====================================================================
+
+// Endpoints
+String temp_endpoint("hub/temperature");
+String hum_endpoint("hub/humidity");
+String log_endpoint("hub/log");
+
+// endpoint is "hub/hub?establisment_id" + std::to_string(hub_id)
+String hub_get_endpoint("hub/hub?establishment_id=1");
+
+// REST API functions
+void POST_log();
+void POST_temp();
+void POST_hum();
+void GET_hub();
+
+constexpr uint8_t hub_id = 22;
+constexpr uint8_t sensor_id = hub_id;
 
 hw_timer_t *tim1;
 hw_timer_t* tim2;
@@ -292,29 +314,16 @@ void IRAM_ATTR onTimer() {
 	is_tim = true;
 }
 
-uint8_t prescaler = 10;
-void IRAM_ATTR onLongTimer() {
-	if (prescaler > 1) {
-		--prescaler;
-	}
+// uint8_t prescaler = 10;
+// void IRAM_ATTR onLongTimer() {
+// 	if (prescaler > 1) {
+// 		--prescaler;
+// 	}
 
-	timerAlarmDisable(tim1);
-	timerAlarmWrite(tim1, prescaler * 1000 - 1, true);
-	timerAlarmEnable(tim1);
-}
-
-// Endpoints
-String temp_endpoint("hub/temperature");
-String hum_endpoint("hub/humidity");
-String log_endpoint("hub/log");
-
-// REST API functions
-void POST_log();
-void POST_temp();
-void POST_hum();
-
-constexpr uint8_t hub_id = 22;
-constexpr uint8_t sensor_id = hub_id;
+// 	timerAlarmDisable(tim1);
+// 	timerAlarmWrite(tim1, prescaler * 1000 - 1, true);
+// 	timerAlarmEnable(tim1);
+// }
 
 /** TODO: Move this code to the right place */
 TaskHandle_t connect_task_handle;
@@ -383,17 +392,17 @@ void setup()
 	Serial.println("Starting BLE work!");
 
 	// подключаемся к Wi-Fi сети
-	// WiFi.begin(ssid, password);
+	WiFi.begin(ssid, password);
 
 	/** TODO: Написать нормальный обработчик команд */
 
-	// while (WiFi.status() != WL_CONNECTED)
-	// {
-		// delay(1000);
-		// Serial.println("Connecting to Wi-Fi..");
-	// }
+	while (WiFi.status() != WL_CONNECTED)
+	{
+		delay(1000);
+		Serial.println("Connecting to Wi-Fi..");
+	}
 
-	// Serial.println("The Wi-Fi connection is established");
+	Serial.println("The Wi-Fi connection is established");
 
 	/** TOOD: Create defines to timer period values and rename timers */
 	// Set timer to 30 mins
@@ -406,41 +415,40 @@ void setup()
 	// timerAttachInterrupt(tim1, &onTimer, true);
 	// timerAlarmWrite(tim1, 6000000 - 1, true);
 	// timerAlarmEnable(tim1);
-	// tim1 = timerBegin(0, 8000 - 1, true);
-	// timerAttachInterrupt(tim1, &onTimer, true);
-	// timerAlarmWrite(tim1, 10000 - 1, true);
-	// timerAlarmEnable(tim1);
 
-	// Send data on start to locate that the MCU is started normally
-	// POST_hum();
-	// delay(100);
-	// POST_temp();
+	// 500 ms timer
+	tim1 = timerBegin(0, 8000 - 1, true);
+	timerAttachInterrupt(tim1, &onTimer, true);
+	timerAlarmWrite(tim1, 5000 - 1, true);
+	timerAlarmEnable(tim1);
 
 	xTaskCreate(task_connect, "task_connect", 2048, nullptr, 1, &connect_task_handle);
 	xTaskCreate(task_input_serial, "task_input_serial", 2048, nullptr, 1, &input_serial_task_handle);
+
+	pinMode(22, OUTPUT);
 }
 
 void loop()
 {
-	// if (is_tim) {
-	// 	// Check the current connection status
-	// 	if ((WiFi.status() == WL_CONNECTED))
-	// 	{	
-	// 		// POST_temp();
-	// 		// POST_hum();
-	// 	}
-	// 	else {
-	// 		// WiFi.reconnect();
+	if (is_tim) {
+		// Check the current connection status
+		if ((WiFi.status() == WL_CONNECTED))
+		{	
+			// POST_temp();
+			// POST_hum();
+			GET_hub();
+		}
+		else {
+			// WiFi.reconnect();
 
-	// 		/** TODO: Add a timeout */
-	// 		// while (WiFi.status() != WL_CONNECTED) {
-	// 		// 	delay(1000);
-	// 		// }
-	// 	}
+			/** TODO: Add a timeout */
+			// while (WiFi.status() != WL_CONNECTED) {
+			// 	delay(1000);
+			// }
+		}
 
-	// 	// Serial.println("TEST");
-	// 	is_tim = false;
-	// }
+		is_tim = false;
+	}
 
 
 	// If we are connected to a peer BLE Server, update the characteristic each time we are reached
@@ -762,7 +770,8 @@ void get_handler(const std::string& message) {
 	{ 
 		HTTPClient http;
 
-		http.begin(url);
+		// http.begin(url);
+		http.begin("http://62.84.117.245:8000/hub/hub?establishment_id=1");
 		int httpCode = http.GET(); // Делаем запрос
 		
 		if (httpCode > 0)
@@ -840,6 +849,10 @@ void ble_handler(const std::string& message) {
 	// std::string tmp = message.substr(header_size, (message.size() - 2) - header_size);
 
 	p_serial_characteristic->writeValue("test");
+}
+
+void get_hub_handler(const std::string& message) {
+	GET_hub();
 }
 
 /** TODO: This will be work only if the message starts with a command*/
@@ -996,4 +1009,32 @@ void POST_hum() {
 	}
 
 	http.end();	
+}
+
+void GET_hub() {
+	StaticJsonDocument<1024> reply;
+
+	http.begin(url + hub_get_endpoint);
+	// http.begin("http://62.84.117.245:8000/hub/hub?establishment_id=1");
+	int httpCode = http.GET();
+
+	if (httpCode > 0) {
+		String&& payload = http.getString();
+
+		Serial.printf("HTTP Status code: %d\n", httpCode);
+		Serial.println(payload);
+
+		DeserializationError error = deserializeJson(reply, payload);
+
+		if (error) {
+			Serial.printf("Deserialization error: %d!\n", error);
+			return;
+		}
+
+		bool relay_status = reply["compressor_relay_status"];
+
+		Serial.println(relay_status);
+		
+		digitalWrite(22, relay_status);
+	}
 }
