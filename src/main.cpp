@@ -1,17 +1,16 @@
 #include <algorithm>
 
 #include <BLEDevice.h>
-// #include <BLEUtils.h>
 #include <BLE2902.h>
-
 #include <HardwareSerial.h>
-#include "RelayController.h"
-
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <ESP32Ping.h>
 #include <time.h>
+
+#include "RelayController.h"
+#include "MemoryManager.h"
 
 #define DEBUG 1
 
@@ -36,7 +35,7 @@ static BLERemoteCharacteristic *p_serial_characteristic;
 
 BLEAddress sensor_MAC_address("3C:A3:08:0D:75:41");
 
-bool doConnect = true;
+bool do_BLE_connect = true;
 bool connected = false;
 bool doScan = false;
 
@@ -63,6 +62,12 @@ bool inflow_high_state = false;
 bool exhaust_low_state = false;
 bool exhaust_high_state = false;
 
+// REST API functions
+void POST_log();
+void POST_temp();
+void POST_hum();
+void GET_hub();
+
 static void notifyCallback(
 	BLERemoteCharacteristic *pBLERemoteCharacteristic,
 	uint8_t *pData,
@@ -76,6 +81,20 @@ static void notifyCallback(
 	Serial.print("data: ");
 	Serial.write(pData, length);
 	Serial.println();
+
+	if (pData[0] == 'h') {
+		// tmp = String(pData[1]) + String(pData[2]);
+
+		std::string tmp_str;
+		tmp_str += pData[1];
+		tmp_str += pData[2];
+
+		curr_hum_value = std::stoi(tmp_str);
+
+		Serial.printf("Parsed humiduty value from BLE: %d\n", curr_hum_value);
+
+		POST_hum();
+	}
 }
 
 class MyClientCallback : public BLEClientCallbacks
@@ -180,6 +199,8 @@ void stop_handler(const std::string& message);
 void period_handler(const std::string& message);
 void ble_handler(const std::string& message);
 void get_hub_handler(const std::string& message);
+void set_wifi_handler(const std::string& message);
+void wifi_connect_handler(const std::string& message);
 
 void parse_message(const std::string& message); 
 
@@ -208,7 +229,9 @@ static const std::vector<Command> command_list = {
 												  Command("stop", stop_handler),
 												  Command("period", period_handler),
 												  Command("ble", ble_handler),
-												  Command("get_hub", get_hub_handler)
+												  Command("get_hub", get_hub_handler),
+												  Command("set_wifi", set_wifi_handler),
+												  Command("wifi_connect", wifi_connect_handler)
 												  };	
 
 
@@ -276,16 +299,43 @@ class TemperatureCharacteristicCallbacks : public BLECharacteristicCallbacks
 };
 
 /*
-    Wi-Fi part
+	EEPROM
+*/
+//====================================================================
+// MemoryManager memory_manager;
+
+// MemoryUnit mem_wifi_ssid(0, 20);
+// MemoryUnit mem_wifi_pass(mem_wifi_ssid.address + mem_wifi_ssid.size, 20);
+// MemoryUnit mem_server_url(mem_wifi_pass.address + mem_wifi_pass.size, 31);
+
+// bool is_ssid_set = true;
+// bool is_pass_set = true;
+// bool is_url_set = true;
+//====================================================================
+
+/*
+    Wi-Fi
 */
 //====================================================================
 // Вводим имя и пароль точки доступа
-const char *ssid = "AKADO-9E4C";
-const char *password = "90704507";
+// const char *ssid = "AKADO-9E4C";
+// const char *password = "90704507";
 
-const String url = "http://62.84.117.245:8000/";
+// const String url = "http://62.84.117.245:8000/";
+
+// String ssid = "blank_ssid";
+// String password = "blank_pass";
+// String url = "blank_url";
+
+const char* ssid = "Redmi 10";
+const char* password = "123456789q";
+const char* url = "http://62.84.117.245:8000/";
+
+bool do_wifi_connect = false;
 
 HTTPClient http;
+
+bool wifi_connect();
 //====================================================================
 
 // Endpoints
@@ -293,17 +343,10 @@ String temp_endpoint("hub/temperature");
 String hum_endpoint("hub/humidity");
 String log_endpoint("hub/log");
 
-// endpoint is "hub/hub?establisment_id" + std::to_string(hub_id)
 String hub_get_endpoint("hub/hub?establishment_id=1");
 
-// REST API functions
-void POST_log();
-void POST_temp();
-void POST_hum();
-void GET_hub();
-
-constexpr uint8_t hub_id = 22;
-constexpr uint8_t sensor_id = hub_id;
+constexpr uint8_t hub_id = 3;
+constexpr uint8_t sensor_id = 1;
 
 hw_timer_t *tim1;
 hw_timer_t* tim2;
@@ -326,36 +369,63 @@ void IRAM_ATTR onTimer() {
 // }
 
 /** TODO: Move this code to the right place */
-TaskHandle_t connect_task_handle;
+TaskHandle_t wifi_connect_task_handle;
+TaskHandle_t BLE_connect_task_handle;
 TaskHandle_t input_serial_task_handle;
 
-void task_connect(void* param) {
+void wifi_task_connect(void* param) {
+
+	for(;;) {
+		if (do_wifi_connect) {
+			Serial.println("Try to connect to Wi-Fi");
+			// uint8_t number_of_unsuccessful_connections = 0;
+			while(wifi_connect() == false) {
+				Serial.print(".");
+
+				// ++number_of_unsuccessful_connections;
+
+				// if (number_of_unsuccessful_connections > 10) {
+				// 	Serial.println("ERROR: Failed to connect to the server!");
+				// 	break;
+				// }
+
+				vTaskDelay(500);
+			};
+			do_wifi_connect = false;
+		}
+
+		vTaskDelay(500);
+	}
+}
+
+void BLE_task_connect(void* param) {
 
 	for(;;) {
 		// If the flag "doConnect" is true then we have scanned for and found the desired
 		// BLE Server with which we wish to connect.  Now we connect to it.  Once we are
 		// connected we set the connected flag to be true.
-		if (doConnect == true)
+		if (do_BLE_connect == true)
 		{
-			Serial.println("Try to connect");
-			// uint8_t number_of_unsuccessful_connections = 0;
+			Serial.println("Try to connect to BLE");
+			uint8_t number_of_unsuccessful_connections = 0;
 			while (connectToServer() == false) {
+				Serial.print(".");
+
 				// ++number_of_unsuccessful_connections;
 
-				// if (number_of_unsuccessful_connections > 5) {
+				// if (number_of_unsuccessful_connections > 10) {
 				// 	Serial.println("ERROR: Failed to connect to the server!");
 				// 	break;
 				// }
+
 				vTaskDelay(500);
 			};
-			doConnect = false;
+			do_BLE_connect = false;
 
 			Serial.println("Connected!");
 		}
-
 		vTaskDelay(500);
 	}
-
 }
 
 void task_input_serial(void* param) {
@@ -375,8 +445,52 @@ void task_input_serial(void* param) {
 void setup()
 {
 	Serial.begin(115200);
-
 	Serial.println("Start program!");
+
+	// Try to load data from EEPROM
+	// mem_wifi_ssid = memory_manager.load(mem_wifi_ssid.address, mem_wifi_ssid.size);
+	// if (mem_wifi_ssid.data.get() == nullptr) {
+	// 	std::memcpy(mem_wifi_ssid.data.get(), ssid.c_str(), ssid.length());
+	// 	Serial.println("Use the default ssid value: " + ssid);
+	// 	is_ssid_set = false;
+	// }
+	// else {
+	// 	char tmp[mem_wifi_ssid.size];
+	// 	std::memcpy(tmp, mem_wifi_ssid.data.get(), mem_wifi_ssid.size);
+	// 	ssid = tmp;
+	// 	Serial.println("The ssid is successfully loaded with value: " + ssid);
+	// 	is_ssid_set = true;
+	// }
+
+	// mem_wifi_pass = memory_manager.load(mem_wifi_pass.address, mem_wifi_pass.size);
+	// if (mem_wifi_pass.data.get() == nullptr) {
+	// 	std::memcpy(mem_wifi_pass.data.get(), password.c_str(), password.length());
+	// 	Serial.println("Use the default pass value: " + password);
+	// 	is_pass_set = false;
+	// }
+	// else {
+	// 	char tmp[mem_wifi_pass.size];
+	// 	std::memcpy(tmp, mem_wifi_pass.data.get(), mem_wifi_pass.size);
+	// 	password = tmp;
+	// 	Serial.println("The pass is successfully loaded with value: " + password);
+	// 	is_pass_set = true;
+	// }
+
+	// mem_server_url = memory_manager.load(mem_server_url.address, mem_server_url.size);
+	// if (mem_server_url.data.get() == nullptr) {
+	// 	std::memcpy(mem_server_url.data.get(), url.c_str(), url.length());
+	// 	Serial.println("Use the default url value: " + url);
+	// 	is_url_set = false;
+	// }
+	// else {
+	// 	char tmp[mem_server_url.size];
+	// 	std::memcpy(tmp, mem_server_url.data.get(), mem_server_url.size);
+	// 	url = tmp;
+	// 	Serial.println("The server URL is successfully loaded with value: " + url);
+	// 	is_url_set = true;
+	// }
+	
+
 	BLEDevice::init("DewPoint");
 
 	// Retrieve a Scanner and set the callback we want to use to be informed when we
@@ -391,18 +505,19 @@ void setup()
 
 	Serial.println("Starting BLE work!");
 
-	// подключаемся к Wi-Fi сети
+	Serial.println("Connect to Wi-Fi");
 	WiFi.begin(ssid, password);
 
-	/** TODO: Написать нормальный обработчик команд */
-
-	while (WiFi.status() != WL_CONNECTED)
-	{
+	while (WiFi.status() != WL_CONNECTED) {
+		Serial.print('.');
 		delay(1000);
-		Serial.println("Connecting to Wi-Fi..");
 	}
 
-	Serial.println("The Wi-Fi connection is established");
+	Serial.println("Connected");
+
+	// if (is_ssid_set and is_pass_set) {
+		do_wifi_connect = true;
+	// }
 
 	/** TOOD: Create defines to timer period values and rename timers */
 	// Set timer to 30 mins
@@ -419,13 +534,15 @@ void setup()
 	// 500 ms timer
 	tim1 = timerBegin(0, 8000 - 1, true);
 	timerAttachInterrupt(tim1, &onTimer, true);
-	timerAlarmWrite(tim1, 5000 - 1, true);
+	timerAlarmWrite(tim1, 10000 - 1, true);
 	timerAlarmEnable(tim1);
 
-	xTaskCreate(task_connect, "task_connect", 2048, nullptr, 1, &connect_task_handle);
+	// xTaskCreate(wifi_task_connect, "wifi_connect", 2048, nullptr, 1, &wifi_connect_task_handle);
+	xTaskCreate(BLE_task_connect, "task_connect", 2048, nullptr, 1, &BLE_connect_task_handle);
 	xTaskCreate(task_input_serial, "task_input_serial", 2048, nullptr, 1, &input_serial_task_handle);
 
 	pinMode(22, OUTPUT);
+	pinMode(LED_BUILTIN, OUTPUT);
 }
 
 void loop()
@@ -855,6 +972,56 @@ void get_hub_handler(const std::string& message) {
 	GET_hub();
 }
 
+void set_wifi_handler(const std::string& message) {
+    // std::vector<std::string> args;
+	// size_t pos = message.find(' ');
+    // size_t initialPos = 0;
+
+    // // Decompose statement
+    // while( pos != std::string::npos ) {
+    //     args.push_back(message.substr(initialPos, pos - initialPos));
+    //     initialPos = pos + 1;
+
+    //     pos = message.find(' ', initialPos );
+    // }
+
+    // // Add the last one
+    // args.push_back(message.substr(initialPos, std::min(pos, message.size()) - initialPos + 1));
+
+	// if (args.size() < 3) {
+	// 	Serial.println("Too few argumets");
+	// 	return;
+	// }
+
+	// if (args[1].size() > mem_wifi_ssid.size) {
+	// 	Serial.printf("The SSID size must be less than %d\n", mem_wifi_ssid.size);
+	// 	return;
+	// }
+
+	// if (args[2].size() > mem_wifi_pass.size) {
+	// 	Serial.printf("The password size must be less than %d\n", mem_wifi_pass.size);
+	// 	return;
+	// }
+
+	// Serial.printf("Parsed SSID: %s and password: %s\n", args[1], args[2]);
+
+	// ssid = args[1].c_str();
+	// password = args[2].c_str();
+
+	// std::memcpy(mem_wifi_ssid.data.get(), ssid.c_str(), ssid.length());
+	// std::memcpy(mem_wifi_pass.data.get(), password.c_str(), password.length());
+
+	// memory_manager.save(mem_wifi_ssid);
+	// memory_manager.save(mem_wifi_pass);
+
+	// is_ssid_set = true;
+	// is_pass_set = true;
+}
+
+void wifi_connect_handler(const std::string& message) {
+	do_wifi_connect = true;
+}
+
 /** TODO: This will be work only if the message starts with a command*/
 void parse_message(const std::string& message) {
 	for (uint8_t i = 0; i < command_list.size(); ++i) {
@@ -970,7 +1137,8 @@ void POST_temp() {
 void POST_hum() {
 	StaticJsonDocument<128> query;
 
-	query["humidity_value"] = String(random(20, 81));
+	// query["humidity_value"] = String(random(20, 81));
+	query["humidity_value"] = String(curr_hum_value);
 	query["hub_id"] = hub_id;
 	query["sensor_id"] = sensor_id; 
 
@@ -1036,5 +1204,15 @@ void GET_hub() {
 		Serial.println(relay_status);
 		
 		digitalWrite(22, relay_status);
+		digitalWrite(LED_BUILTIN, relay_status);
 	}
+}
+
+bool wifi_connect() {
+	WiFi.begin(ssid, password);
+
+	if (WiFi.status() != WL_CONNECTED)
+		return false;
+
+	return true;
 }
