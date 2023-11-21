@@ -329,7 +329,7 @@ class TemperatureCharacteristicCallbacks : public BLECharacteristicCallbacks
 
 const char* ssid = "Redmi 10";
 const char* password = "123456789q";
-const char* url = "http://62.84.117.245:8000/";
+const char* url = "https://serverpd.ru/";
 
 bool do_wifi_connect = false;
 
@@ -345,8 +345,8 @@ String log_endpoint("hub/log");
 
 String hub_get_endpoint("hub/hub?establishment_id=1");
 
-constexpr uint8_t hub_id = 3;
-constexpr uint8_t sensor_id = 1;
+constexpr uint8_t hub_id = 1;
+constexpr uint8_t sensor_id = 2;
 
 hw_timer_t *tim1;
 hw_timer_t* tim2;
