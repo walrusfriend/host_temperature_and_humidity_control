@@ -85,19 +85,34 @@ static void notifyCallback(
 	Serial.write(pData, length);
 	Serial.println();
 
-	if (pData[0] == 'h')
+	if (pData[0] == 'd')
 	{
-		// tmp = String(pData[1]) + String(pData[2]);
+		if (pData[2] == 't' || pData[5] == 'h') {
+			/** TODO: ERROR SOMEWHERE */
+			std::string temp_str;
+			temp_str += pData[3];
+			temp_str += pData[4];
 
-		std::string tmp_str;
-		tmp_str += pData[1];
-		tmp_str += pData[2];
+			/** TODO: Add check for number */
+			curr_temp_value = std::stoi(temp_str);
 
-		curr_hum_value = std::stoi(tmp_str);
+			std::string hum_str;
+			hum_str += pData[6];
+			hum_str += pData[7];
 
-		Serial.printf("Parsed humiduty value from BLE: %d\n", curr_hum_value);
+			/** TODO: Add check for number */
+			curr_hum_value = std::stoi(hum_str);
 
-		is_data_from_BLE_received = true;
+			Serial.printf("Parsed temp value: %d\n"
+						  "Parsed hum value %d\n\n", curr_temp_value, curr_hum_value);
+
+			is_data_from_BLE_received = true;
+		}
+		else {
+			Serial.println("ERROR: Invalid message!");
+			Serial.println((char*)pData);
+		}
+	
 	}
 }
 
@@ -208,6 +223,7 @@ void ble_handler(const std::string &message);
 void get_hub_handler(const std::string &message);
 void set_wifi_handler(const std::string &message);
 void wifi_connect_handler(const std::string &message);
+void data_request_handler(const std::string &message);
 
 void parse_message(const std::string &message);
 
@@ -238,7 +254,9 @@ static const std::vector<Command> command_list = {
 	Command("ble", ble_handler),
 	Command("get_hub", get_hub_handler),
 	Command("set_wifi", set_wifi_handler),
-	Command("wifi_connect", wifi_connect_handler)};
+	Command("wifi_connect", wifi_connect_handler),
+	Command("data_request", data_request_handler)
+};
 
 class HumidityCharacteristicCallbacks : public BLECharacteristicCallbacks
 {
@@ -587,8 +605,8 @@ void loop()
 		{
 			// POST_temp();
 			// POST_hum();
-			GET_hub();
-			ets_delay_us(100);
+			// GET_hub();
+			// ets_delay_us(100);
 		}
 		else
 		{
@@ -604,9 +622,14 @@ void loop()
 	}
 
 	if (is_data_from_BLE_received) {
-		/** TODO: Нужно посылать значение, пока оно не будет принято */
+		/** TODO: Нужно посылать значение, пока оно не будет принято.
+		 * 	Возможно, даже складывать значения в очередь, пока всё не будет отправлено.
+		 * 	Также со всеми запросами - нужно удостовериться, что запрос дошёл и, если нет,
+		 * 	то отправлять запрос до тех пор, пока не получится отправить.
+		 * 	Можно генерировать логи, что не было связи с сервером в какое-то время.
+		 * 	Нужно настроить время на борту, чтобы привязывать логи к "бортовому" времени.
+		*/
 		POST_hum();
-		ets_delay_us(100);
 		is_data_from_BLE_received = false;
 	}
 }
@@ -1114,6 +1137,12 @@ void wifi_connect_handler(const std::string &message)
 	do_wifi_connect = true;
 }
 
+void data_request_handler(const std::string &message) {
+	/** TODO: Check if we connected to BLE server */
+
+	p_serial_characteristic->writeValue("d");
+}
+
 /** TODO: This will be work only if the message starts with a command*/
 void parse_message(const std::string &message)
 {
@@ -1331,6 +1360,8 @@ void GET_hub()
 	else {
 		Serial.printf("HTTPS GET hub ERROR: %d\n", httpCode);
 	}
+
+	https.end();
 }
 
 bool wifi_connect()
