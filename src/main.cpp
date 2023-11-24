@@ -77,6 +77,7 @@ static void notifyCallback(
 	size_t length,
 	bool isNotify)
 {
+	Serial.println("=======================================");
 	Serial.print("Notify callback for characteristic ");
 	Serial.print(pBLERemoteCharacteristic->getUUID().toString().c_str());
 	Serial.print(" of data length ");
@@ -87,8 +88,7 @@ static void notifyCallback(
 
 	if (pData[0] == 'd')
 	{
-		if (pData[2] == 't' || pData[5] == 'h') {
-			/** TODO: ERROR SOMEWHERE */
+		if (pData[2] == 't' && pData[6] == 'h') {
 			std::string temp_str;
 			temp_str += pData[3];
 			temp_str += pData[4];
@@ -97,8 +97,8 @@ static void notifyCallback(
 			curr_temp_value = std::stoi(temp_str);
 
 			std::string hum_str;
-			hum_str += pData[6];
 			hum_str += pData[7];
+			hum_str += pData[8];
 
 			/** TODO: Add check for number */
 			curr_hum_value = std::stoi(hum_str);
@@ -112,7 +112,7 @@ static void notifyCallback(
 			Serial.println("ERROR: Invalid message!");
 			Serial.println((char*)pData);
 		}
-	
+		Serial.println("=======================================");
 	}
 }
 
@@ -377,23 +377,17 @@ constexpr uint8_t establishment_id = 2;
 hw_timer_t *tim1;
 hw_timer_t *tim2;
 
-bool is_tim = false;
+bool is_status_tim = false;
+bool is_sensor_tim = false;
 
-void IRAM_ATTR onTimer()
+void IRAM_ATTR onStatusTimer()
 {
-	is_tim = true;
+	is_status_tim = true;
 }
 
-// uint8_t prescaler = 10;
-// void IRAM_ATTR onLongTimer() {
-// 	if (prescaler > 1) {
-// 		--prescaler;
-// 	}
-
-// 	timerAlarmDisable(tim1);
-// 	timerAlarmWrite(tim1, prescaler * 1000 - 1, true);
-// 	timerAlarmEnable(tim1);
-// }
+void IRAM_ATTR onLongTimer() {
+	is_sensor_tim = true;
+}
 
 /** TODO: Move this code to the right place */
 TaskHandle_t wifi_connect_task_handle;
@@ -475,7 +469,7 @@ void task_input_serial(void *param)
 			parse_message(std::string(sym));
 		}
 
-		vTaskDelay(1);
+		vTaskDelay(100);
 	}
 }
 
@@ -548,7 +542,7 @@ void setup()
 
 	while (WiFi.status() != WL_CONNECTED)
 	{
-		Serial.print('.');
+		Serial.print(".");
 		delay(1000);
 	}
 
@@ -571,22 +565,17 @@ void setup()
 	// }
 
 	/** TOOD: Create defines to timer period values and rename timers */
-	// Set timer to 30 mins
-	// tim2 = timerBegin(1, 8000 - 1, true);
-	// timerAttachInterrupt(tim2, &onLongTimer, true);
-	// timerAlarmWrite(tim2, 18000000 - 1, true);
-	// timerAlarmEnable(tim2);
-
-	// tim1 = timerBegin(0, 8000 - 1, true);
-	// timerAttachInterrupt(tim1, &onTimer, true);
-	// timerAlarmWrite(tim1, 6000000 - 1, true);
-	// timerAlarmEnable(tim1);
-
-	// 1 s timer
+	// 1s timer
 	tim1 = timerBegin(0, 8000 - 1, true);
-	timerAttachInterrupt(tim1, &onTimer, true);
+	timerAttachInterrupt(tim1, &onStatusTimer, true);
 	timerAlarmWrite(tim1, 10000 - 1, true);
 	timerAlarmEnable(tim1);
+	
+	// Set timer to 5 mins
+	tim2 = timerBegin(1, 8000 - 1, true);
+	timerAttachInterrupt(tim2, &onLongTimer, true);
+	timerAlarmWrite(tim2, 50000 - 1, true);
+	timerAlarmEnable(tim2);
 
 	// xTaskCreate(wifi_task_connect, "wifi_connect", 2048, nullptr, 1, &wifi_connect_task_handle);
 	xTaskCreate(BLE_task_connect, "task_connect", 2048, nullptr, 1, &BLE_connect_task_handle);
@@ -598,27 +587,33 @@ void setup()
 
 void loop()
 {
-	if (is_tim)
+	if (is_status_tim)
 	{
 		// Check the current connection status
 		if ((WiFi.status() == WL_CONNECTED))
 		{
 			// POST_temp();
 			// POST_hum();
-			// GET_hub();
+			GET_hub();
 			// ets_delay_us(100);
 		}
 		else
 		{
-			// WiFi.reconnect();
+			WiFi.reconnect();
 
 			/** TODO: Add a timeout */
-			// while (WiFi.status() != WL_CONNECTED) {
-			// 	delay(1000);
-			// }
+			while (WiFi.status() != WL_CONNECTED) {
+				Serial.print(".");
+				delay(1000);
+			}
 		}
 
-		is_tim = false;
+		is_status_tim = false;
+	}
+
+	if (is_sensor_tim) {
+		p_serial_characteristic->writeValue("d");
+		is_sensor_tim = true;
 	}
 
 	if (is_data_from_BLE_received) {
@@ -630,6 +625,8 @@ void loop()
 		 * 	Нужно настроить время на борту, чтобы привязывать логи к "бортовому" времени.
 		*/
 		POST_hum();
+		delay(100);
+		POST_temp();
 		is_data_from_BLE_received = false;
 	}
 }
@@ -1221,6 +1218,7 @@ void POST_log()
 
 void POST_temp()
 {
+	Serial.println("=======================================");
 	StaticJsonDocument<128> query;
 
 	query["temperature_value"] = String(random(-2000, 2100) / 100.);
@@ -1264,10 +1262,12 @@ void POST_temp()
 	}
 
 	https.end();
+	Serial.println("=======================================");
 }
 
 void POST_hum()
 {
+	Serial.println("=======================================");
 	StaticJsonDocument<128> query;
 
 	// query["humidity_value"] = String(random(20, 81));
@@ -1319,10 +1319,12 @@ void POST_hum()
 	}
 
 	https.end();
+	Serial.println("=======================================");
 }
 
 void GET_hub()
 {
+	Serial.println("=======================================");
 	StaticJsonDocument<1024> reply;
 
 	bool status = https.begin(url + hub_get_endpoint + String(establishment_id));
@@ -1362,6 +1364,8 @@ void GET_hub()
 	}
 
 	https.end();
+
+	Serial.println("=======================================");
 }
 
 bool wifi_connect()
