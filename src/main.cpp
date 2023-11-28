@@ -1,15 +1,8 @@
 #include <algorithm>
-
-#include <BLEDevice.h>
-#include <BLE2902.h>
-#include <HardwareSerial.h>
-#include <WiFi.h>
-#include <HTTPClient.h>
-#include <ArduinoJson.h>
-#include <ESP32Ping.h>
 #include <time.h>
-#include <WiFiClientSecure.h>
 
+#include "BLE.h"
+#include "Network.h"
 #include "RelayController.h"
 #include "MemoryManager.h"
 
@@ -28,31 +21,14 @@
  * 	 -
  */
 
-static BLEUUID serial_service_uuid("0000ffe0-0000-1000-8000-00805f9b34fb");
-static BLEUUID serial_characteristic_uuid("0000ffe1-0000-1000-8000-00805f9b34fb");
-
-static BLEClient *pClient;
-static BLERemoteCharacteristic *p_serial_characteristic;
-
-BLEAddress sensor_MAC_address("3C:A3:08:0D:75:41");
-
-bool do_BLE_connect = true;
-bool connected = false;
-bool doScan = false;
-
-bool is_data_from_BLE_received = false;
-
-uint8_t txValue = 0;
+BLE ble;
 
 uint8_t hum_min = 53;
 uint8_t hum_max = 80;
 
 uint8_t curr_hum_value = 0xff;
-uint8_t curr_temp_value = 15;
+uint8_t curr_temp_value = 0xff;
 uint8_t curr_battery_value = 100;
-
-std::string BLE_reply;
-std::string BLE_reply_to_sensor;
 
 const uint8_t HUMIDITY_SENSOR_ACCURACY = 2;
 
@@ -65,125 +41,7 @@ bool inflow_high_state = false;
 bool exhaust_low_state = false;
 bool exhaust_high_state = false;
 
-// REST API functions
-void POST_log();
-void POST_temp();
-void POST_hum();
-void GET_hub();
-
-static void notifyCallback(
-	BLERemoteCharacteristic *pBLERemoteCharacteristic,
-	uint8_t *pData,
-	size_t length,
-	bool isNotify)
-{
-	Serial.println("=======================================");
-	Serial.print("Notify callback for characteristic ");
-	Serial.print(pBLERemoteCharacteristic->getUUID().toString().c_str());
-	Serial.print(" of data length ");
-	Serial.println(length);
-	Serial.print("data: ");
-	Serial.write(pData, length);
-	Serial.println();
-
-	if (pData[0] == 'd')
-	{
-		if (pData[2] == 't' && pData[6] == 'h') {
-			std::string temp_str;
-			temp_str += pData[3];
-			temp_str += pData[4];
-
-			/** TODO: Add check for number */
-			curr_temp_value = std::stoi(temp_str);
-
-			std::string hum_str;
-			hum_str += pData[7];
-			hum_str += pData[8];
-
-			/** TODO: Add check for number */
-			curr_hum_value = std::stoi(hum_str);
-
-			Serial.printf("Parsed temp value: %d\n"
-						  "Parsed hum value %d\n\n", curr_temp_value, curr_hum_value);
-
-			is_data_from_BLE_received = true;
-		}
-		else {
-			Serial.println("ERROR: Invalid message!");
-			Serial.println((char*)pData);
-		}
-		Serial.println("=======================================");
-	}
-}
-
-class MyClientCallback : public BLEClientCallbacks
-{
-	void onConnect(BLEClient *pclient)
-	{
-		connected = false;
-	}
-
-	void onDisconnect(BLEClient *pclient)
-	{
-		connected = false;
-		Serial.println("onDisconnect");
-	}
-};
-
 void compare_hum();
-
-bool connectToServer()
-{
-	Serial.printf("Forming a connection to %s", sensor_MAC_address.toString().c_str());
-
-	pClient = BLEDevice::createClient();
-	Serial.println(" - Created client");
-
-	pClient->setClientCallbacks(new MyClientCallback());
-
-	if (pClient->connect(sensor_MAC_address) == false)
-	{
-		Serial.println("Couldn't connect to remote BLE server!");
-		return false;
-	}
-
-	Serial.println(" - Connected to server");
-	pClient->setMTU(517); // set client to request maximum MTU from server (default is 23 otherwise)
-
-	BLERemoteService *p_serial_service = pClient->getService(serial_service_uuid);
-	if (p_serial_service == nullptr)
-	{
-		Serial.print("Failed to find our service UUID: ");
-		Serial.println(serial_service_uuid.toString().c_str());
-		pClient->disconnect();
-		return false;
-	}
-	Serial.println(" - Found serial service");
-
-	p_serial_characteristic = p_serial_service->getCharacteristic(serial_characteristic_uuid);
-	if (p_serial_service == nullptr)
-	{
-		Serial.print("Failed to find our characteristic UUID: ");
-		Serial.println(serial_characteristic_uuid.toString().c_str());
-		pClient->disconnect();
-		return false;
-	}
-	Serial.println(" - Found service characteristic");
-
-	// Read the value of the characteristic.
-	// if (pRemoteCharacteristic->canRead())
-	// {
-	// 	std::string value = pRemoteCharacteristic->readValue();
-	// 	Serial.print("The characteristic value was: ");
-	// 	Serial.println(value.c_str());
-	// }
-
-	if (p_serial_characteristic->canNotify())
-		p_serial_characteristic->registerForNotify(notifyCallback);
-
-	connected = true;
-	return true;
-}
 
 struct Command
 {
@@ -219,7 +77,6 @@ void rand_handler(const std::string &message);
 void start_handler(const std::string &message);
 void stop_handler(const std::string &message);
 void period_handler(const std::string &message);
-void ble_handler(const std::string &message);
 void get_hub_handler(const std::string &message);
 void set_wifi_handler(const std::string &message);
 void wifi_connect_handler(const std::string &message);
@@ -251,76 +108,10 @@ static const std::vector<Command> command_list = {
 	Command("start", start_handler),
 	Command("stop", stop_handler),
 	Command("period", period_handler),
-	Command("ble", ble_handler),
 	Command("get_hub", get_hub_handler),
 	Command("set_wifi", set_wifi_handler),
 	Command("wifi_connect", wifi_connect_handler),
 	Command("data_request", data_request_handler)
-};
-
-class HumidityCharacteristicCallbacks : public BLECharacteristicCallbacks
-{
-	void onWrite(BLECharacteristic *pCharacteristic)
-	{
-		std::string rxValue = pCharacteristic->getValue();
-
-		if (rxValue.length() > 0)
-		{
-			Serial.println(rxValue.c_str());
-			// parse_message(rxValue);
-			humidity_handler(rxValue);
-
-			// Calculate border values
-			uint8_t step_value = (hum_max - hum_min) * 0.2;
-
-			if (step_value < HUMIDITY_SENSOR_ACCURACY)
-				step_value = HUMIDITY_SENSOR_ACCURACY;
-			// Serial.printf("DEBUG: step_value: %d\n", step_value);
-
-			if ((curr_hum_value < hum_min + step_value) or (curr_hum_value > hum_max - step_value))
-			{
-				BLE_reply_to_sensor = "S5\n";
-			}
-			else
-			{
-				BLE_reply_to_sensor = "S30\n";
-			}
-			// Serial.printf("DEBUG: reply %s\n",
-			// BLE_reply_to_sensor.c_str());
-		}
-	}
-};
-
-class TemperatureCharacteristicCallbacks : public BLECharacteristicCallbacks
-{
-	void onWrite(BLECharacteristic *pCharacteristic)
-	{
-		std::string rxValue = pCharacteristic->getValue();
-
-		if (rxValue.length() > 0)
-		{
-			Serial.println(rxValue.c_str());
-			parse_message(rxValue);
-
-			// Calculate border values
-			uint8_t step_value = (hum_max - hum_min) * 0.2;
-
-			if (step_value < HUMIDITY_SENSOR_ACCURACY)
-				step_value = HUMIDITY_SENSOR_ACCURACY;
-			// Serial.printf("DEBUG: step_value: %d\n", step_value);
-
-			if ((curr_hum_value < hum_min + step_value) or (curr_hum_value > hum_max - step_value))
-			{
-				BLE_reply_to_sensor = "S5\n";
-			}
-			else
-			{
-				BLE_reply_to_sensor = "S30\n";
-			}
-			// Serial.printf("DEBUG: reply %s\n",
-			// BLE_reply_to_sensor.c_str());
-		}
-	}
 };
 
 /*
@@ -338,41 +129,7 @@ class TemperatureCharacteristicCallbacks : public BLECharacteristicCallbacks
 // bool is_url_set = true;
 //====================================================================
 
-/*
-	Wi-Fi
-*/
-//====================================================================
-// Вводим имя и пароль точки доступа
-// const char *ssid = "AKADO-9E4C";
-// const char *password = "90704507";
-
-// const String url = "http://62.84.117.245:8000/";
-
-// String ssid = "blank_ssid";
-// String password = "blank_pass";
-// String url = "blank_url";
-
-const char *ssid = "Redmi 10";
-const char *password = "123456789q";
-const char *url = "https://serverpd.ru";
-
-bool do_wifi_connect = false;
-
-HTTPClient https;
-
-bool wifi_connect();
-//====================================================================
-
-// Endpoints
-String temp_endpoint("/hub/temperature");
-String hum_endpoint("/hub/humidity");
-String log_endpoint("/hub/log");
-
-String hub_get_endpoint("/hub/hub?establishment_id=");
-
-constexpr uint8_t hub_id = 3;
-constexpr uint8_t sensor_id = 1;
-constexpr uint8_t establishment_id = 2;
+Network network;
 
 hw_timer_t *tim1;
 hw_timer_t *tim2;
@@ -385,7 +142,7 @@ void IRAM_ATTR onStatusTimer()
 	is_status_tim = true;
 }
 
-void IRAM_ATTR onLongTimer() {
+void IRAM_ATTR onSensorTimer() {
 	is_sensor_tim = true;
 }
 
@@ -396,28 +153,55 @@ TaskHandle_t input_serial_task_handle;
 
 void wifi_task_connect(void *param)
 {
+	Serial.println("Connect to Wi-Fi");
+
+	network.check_wifi_parameters();
 
 	for (;;)
 	{
-		if (do_wifi_connect)
-		{
-			Serial.println("Try to connect to Wi-Fi");
-			// uint8_t number_of_unsuccessful_connections = 0;
-			while (wifi_connect() == false)
-			{
-				Serial.print(".");
-
-				// ++number_of_unsuccessful_connections;
-
-				// if (number_of_unsuccessful_connections > 10) {
-				// 	Serial.println("ERROR: Failed to connect to the server!");
-				// 	break;
-				// }
-
-				vTaskDelay(500);
-			};
-			do_wifi_connect = false;
+		if (network.is_wifi_settings_initialized) {
+			
 		}
+
+
+
+
+		if (network.is_wifi_settings_initialized && 
+			network.is_wifi_connection_establish == false) 
+		{
+			network.wifi_connect();
+		}
+
+		if (WiFi.status() != WL_CONNECTED && network.is_wifi_connection_establish) {
+			Serial.println("DEBUG: the Wi-Fi disconnected!");
+			network.is_wifi_connection_establish = false;
+		}
+
+		if (network.is_wifi_connection_establish == false) {
+			Serial.println("DEBUG: Try to reconnect to the Wi-Fi network");
+			network.wifi_connect();
+		}
+
+		// if (network.do_wifi_connect)
+		// {
+		// 	Serial.println("Try to connect to Wi-Fi");
+		// 	// uint8_t number_of_unsuccessful_connections = 0;
+		// 	while (network.wifi_connect() == false)
+		// 	{
+		// 		Serial.printf(".");
+
+		// 		// ++number_of_unsuccessful_connections;
+
+		// 		// if (number_of_unsuccessful_connections > 10) {
+		// 		// 	Serial.println("ERROR: Failed to connect to the server!");
+		// 		// 	break;
+		// 		// }
+
+		// 		vTaskDelay(500);
+		// 	};
+		// 	Serial.println();
+		// 	network.do_wifi_connect = false;
+		// }
 
 		vTaskDelay(500);
 	}
@@ -425,19 +209,21 @@ void wifi_task_connect(void *param)
 
 void BLE_task_connect(void *param)
 {
+	BLEDevice::init("DewPoint");
+	Serial.println("Starting BLE work!");
 
 	for (;;)
 	{
 		// If the flag "doConnect" is true then we have scanned for and found the desired
 		// BLE Server with which we wish to connect.  Now we connect to it.  Once we are
 		// connected we set the connected flag to be true.
-		if (do_BLE_connect == true)
+		if (ble.do_BLE_connect == true)
 		{
 			Serial.println("Try to connect to BLE");
 			uint8_t number_of_unsuccessful_connections = 0;
-			while (connectToServer() == false)
+			while (ble.connectToServer() == false)
 			{
-				Serial.print(".");
+				Serial.printf(".");
 
 				// ++number_of_unsuccessful_connections;
 
@@ -448,7 +234,8 @@ void BLE_task_connect(void *param)
 
 				vTaskDelay(500);
 			};
-			do_BLE_connect = false;
+			Serial.println();
+			ble.do_BLE_connect = false;
 
 			Serial.println("Connected!");
 		}
@@ -521,50 +308,40 @@ void setup()
 	// 	is_url_set = true;
 	// }
 
-	BLEDevice::init("DewPoint");
+	// WiFi.mode(WIFI_STA);
+	// WiFi.begin(network.ssid, network.password);
 
-	// Retrieve a Scanner and set the callback we want to use to be informed when we
-	// have detected a new device.  Specify that we want active scanning and start the
-	// scan to run for 5 seconds.
-	// BLEScan *pBLEScan = BLEDevice::getScan();
-	// pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
-	// pBLEScan->setInterval(1349);
-	// pBLEScan->setWindow(449);
-	// pBLEScan->setActiveScan(true);
-	// pBLEScan->start(5, false);
+	// while (WiFi.status() != WL_CONNECTED)
+	// {
+	// 	Serial.printf(".");
+	// 	delay(1000);
+	// }
+	// Serial.println();
 
-	Serial.println("Starting BLE work!");
+	// WiFiClientSecure *client = new WiFiClientSecure;
 
-	Serial.println("Connect to Wi-Fi");
-
-	WiFi.mode(WIFI_STA);
-	WiFi.begin(ssid, password);
-
-	while (WiFi.status() != WL_CONNECTED)
-	{
-		Serial.print(".");
-		delay(1000);
-	}
-
-	WiFiClientSecure *client = new WiFiClientSecure;
-
-	if (client)
-	{
-		// set secure client without certificate
-		client->setInsecure();
-	}
-	else
-	{
-		Serial.printf("[HTTPS] Unable to connect\n");
-	}
-
-	Serial.println("Connected");
-
-	// if (is_ssid_set and is_pass_set) {
-	do_wifi_connect = true;
+	// if (client)
+	// {
+	// 	// set secure client without certificate
+	// 	client->setInsecure();
+	// }
+	// else
+	// {
+	// 	Serial.printf("ERROR: [HTTPS] Unable to connect\n");
 	// }
 
-	/** TOOD: Create defines to timer period values and rename timers */
+	// Serial.println("Connected");
+
+	// // if (is_ssid_set and is_pass_set) {
+	// network.do_wifi_connect = true;
+	// }
+
+	xTaskCreate(wifi_task_connect, "wifi_connect", 2048, nullptr, 1, &wifi_connect_task_handle);
+	xTaskCreate(BLE_task_connect, "task_connect", 2048, nullptr, 1, &BLE_connect_task_handle);
+	xTaskCreate(task_input_serial, "task_input_serial", 2048, nullptr, 1, &input_serial_task_handle);
+
+	delay(2000);
+
 	// 1s timer
 	tim1 = timerBegin(0, 8000 - 1, true);
 	timerAttachInterrupt(tim1, &onStatusTimer, true);
@@ -573,13 +350,9 @@ void setup()
 	
 	// Set timer to 5 mins
 	tim2 = timerBegin(1, 8000 - 1, true);
-	timerAttachInterrupt(tim2, &onLongTimer, true);
+	timerAttachInterrupt(tim2, &onSensorTimer, true);
 	timerAlarmWrite(tim2, 50000 - 1, true);
 	timerAlarmEnable(tim2);
-
-	// xTaskCreate(wifi_task_connect, "wifi_connect", 2048, nullptr, 1, &wifi_connect_task_handle);
-	xTaskCreate(BLE_task_connect, "task_connect", 2048, nullptr, 1, &BLE_connect_task_handle);
-	xTaskCreate(task_input_serial, "task_input_serial", 2048, nullptr, 1, &input_serial_task_handle);
 
 	pinMode(22, OUTPUT);
 	pinMode(LED_BUILTIN, OUTPUT);
@@ -587,48 +360,52 @@ void setup()
 
 void loop()
 {
-	if (is_status_tim)
-	{
-		// Check the current connection status
-		if ((WiFi.status() == WL_CONNECTED))
-		{
-			// POST_temp();
-			// POST_hum();
-			GET_hub();
-			// ets_delay_us(100);
-		}
-		else
-		{
-			WiFi.reconnect();
+	// if (is_status_tim)
+	// {
+	// 	Serial.println("On hub status hanlder");
+	// 	// Check the current connection status
+	// 	if ((WiFi.status() == WL_CONNECTED))
+	// 	{
+	// 		// POST_temp();
+	// 		// POST_hum();
+	// 		network.GET_hub();
+	// 		// ets_delay_us(100);
+	// 	}
+	// 	else
+	// 	{
+	// 		WiFi.reconnect();
 
-			/** TODO: Add a timeout */
-			while (WiFi.status() != WL_CONNECTED) {
-				Serial.print(".");
-				delay(1000);
-			}
-		}
+	// 		/** TODO: Add a timeout */
+	// 		while (WiFi.status() != WL_CONNECTED) {
+	// 			Serial.printf(".");
+	// 			delay(1000);
+	// 		}
+	// 	}
+	// 	Serial.println();
 
-		is_status_tim = false;
-	}
+	// 	is_status_tim = false;
+	// }
 
-	if (is_sensor_tim) {
-		p_serial_characteristic->writeValue("d");
-		is_sensor_tim = true;
-	}
+	// if (is_sensor_tim) {
+	// 	Serial.println("On sensor parameters handler");
+	// 	ble.p_serial_characteristic->writeValue("d");
+	// 	is_sensor_tim = false;
+	// }
 
-	if (is_data_from_BLE_received) {
-		/** TODO: Нужно посылать значение, пока оно не будет принято.
-		 * 	Возможно, даже складывать значения в очередь, пока всё не будет отправлено.
-		 * 	Также со всеми запросами - нужно удостовериться, что запрос дошёл и, если нет,
-		 * 	то отправлять запрос до тех пор, пока не получится отправить.
-		 * 	Можно генерировать логи, что не было связи с сервером в какое-то время.
-		 * 	Нужно настроить время на борту, чтобы привязывать логи к "бортовому" времени.
-		*/
-		POST_hum();
-		delay(100);
-		POST_temp();
-		is_data_from_BLE_received = false;
-	}
+	// if (ble.is_data_from_BLE_received) {
+	// 	Serial.println("On BLE data recived handler");
+	// 	/** TODO: Нужно посылать значение, пока оно не будет принято.
+	// 	 * 	Возможно, даже складывать значения в очередь, пока всё не будет отправлено.
+	// 	 * 	Также со всеми запросами - нужно удостовериться, что запрос дошёл и, если нет,
+	// 	 * 	то отправлять запрос до тех пор, пока не получится отправить.
+	// 	 * 	Можно генерировать логи, что не было связи с сервером в какое-то время.
+	// 	 * 	Нужно настроить время на борту, чтобы привязывать логи к "бортовому" времени.
+	// 	*/
+	// 	network.POST_hum(curr_hum_value);
+	// 	delay(100);
+	// 	network.POST_temp(curr_temp_value);
+	// 	ble.is_data_from_BLE_received = false;
+	// }
 }
 
 void compare_hum()
@@ -673,9 +450,9 @@ void hum_handler(const std::string &message)
 	auto space_pos = message.find_last_of(' ');
 	if (space_pos == std::string::npos or space_pos == 3 /* Exclude the first 'space' sym */)
 	{
-		BLE_reply = "ERROR: Unknown command format!\n"
+		ble.BLE_reply = "ERROR: Unknown command format!\n"
 					"Command must looks like 'hum xx xx' where xx - a positive number from 0 to 100!\n";
-		debug(BLE_reply);
+		debug(ble.BLE_reply);
 		return;
 	}
 
@@ -685,8 +462,8 @@ void hum_handler(const std::string &message)
 
 	if (tmp_hum_max_str[0] == '-' or tmp_hum_min_str[0] == '-')
 	{
-		BLE_reply = "ERROR: The humidity value borders must be a positive number!\n";
-		debug(BLE_reply);
+		ble.BLE_reply = "ERROR: The humidity value borders must be a positive number!\n";
+		debug(ble.BLE_reply);
 		return;
 	}
 
@@ -699,8 +476,8 @@ void hum_handler(const std::string &message)
 	}
 	else
 	{
-		BLE_reply = "ERROR: The minimum humidity value is not a number!\n";
-		debug(BLE_reply);
+		ble.BLE_reply = "ERROR: The minimum humidity value is not a number!\n";
+		debug(ble.BLE_reply);
 		return;
 	}
 
@@ -710,46 +487,46 @@ void hum_handler(const std::string &message)
 	}
 	else
 	{
-		BLE_reply = "ERROR: The maximum humidity value is not a number!\n";
-		debug(BLE_reply);
+		ble.BLE_reply = "ERROR: The maximum humidity value is not a number!\n";
+		debug(ble.BLE_reply);
 		return;
 	}
 
 	if (tmp_min_hum_value > tmp_max_hum_value)
 	{
-		BLE_reply = "ERROR: The lower border must be less than the higher border!\n";
-		debug(BLE_reply);
+		ble.BLE_reply = "ERROR: The lower border must be less than the higher border!\n";
+		debug(ble.BLE_reply);
 		return;
 	}
 	else if (tmp_max_hum_value > 100)
 	{
-		BLE_reply = "ERROR: The maximum humidity value must be less or equal than 100!\n";
-		debug(BLE_reply);
+		ble.BLE_reply = "ERROR: The maximum humidity value must be less or equal than 100!\n";
+		debug(ble.BLE_reply);
 		return;
 	}
 
 	hum_min = tmp_min_hum_value;
 	hum_max = tmp_max_hum_value;
 
-	BLE_reply = "New humidity border values is " + std::to_string(hum_min) +
+	ble.BLE_reply = "New humidity border values is " + std::to_string(hum_min) +
 				" and " + std::to_string(hum_max) + '\n';
-	Serial.print(BLE_reply.c_str());
+	Serial.print(ble.BLE_reply.c_str());
 }
 
 void curr_hum_handler(const std::string &message)
 {
 	if (curr_hum_value == 0xFF)
-		BLE_reply = "ERROR: No humidity value from sensor!\n";
+		ble.BLE_reply = "ERROR: No humidity value from sensor!\n";
 	else
-		BLE_reply = std::to_string(curr_hum_value) + '\n';
+		ble.BLE_reply = std::to_string(curr_hum_value) + '\n';
 
-	Serial.print(BLE_reply.c_str());
+	Serial.print(ble.BLE_reply.c_str());
 }
 
 void error_handler(const std::string &message)
 {
-	BLE_reply = std::move(message);
-	Serial.print(BLE_reply.c_str());
+	ble.BLE_reply = std::move(message);
+	Serial.print(ble.BLE_reply.c_str());
 }
 
 void relay_handler(const std::string &message)
@@ -762,25 +539,25 @@ void relay_handler(const std::string &message)
 	{
 		is_compressor_start = true;
 		is_relay_controlled_by_user = true;
-		BLE_reply = "Set the relay status to ON\n";
+		ble.BLE_reply = "Set the relay status to ON\n";
 	}
 	else if (tmp == "off")
 	{
 		is_compressor_start = false;
 		is_relay_controlled_by_user = true;
-		BLE_reply = "Set the relay status to OFF\n";
+		ble.BLE_reply = "Set the relay status to OFF\n";
 	}
 	else if (tmp == "auto")
 	{
 		is_relay_controlled_by_user = false;
-		BLE_reply = "The relay change its state automatically!\n";
+		ble.BLE_reply = "The relay change its state automatically!\n";
 	}
 	else
 	{
-		BLE_reply = "ERROR: Unknown argument!\n";
+		ble.BLE_reply = "ERROR: Unknown argument!\n";
 	}
 
-	Serial.print(BLE_reply.c_str());
+	Serial.print(ble.BLE_reply.c_str());
 }
 
 /** TODO: Remake a algorythm - sensor sends a headher of the message,
@@ -793,13 +570,13 @@ void humidity_handler(const std::string &message)
 	if (is_number(tmp_str))
 	{
 		curr_hum_value = std::stoi(tmp_str);
-		BLE_reply = message;
-		debug(BLE_reply);
+		ble.BLE_reply = message;
+		debug(ble.BLE_reply);
 	}
 	else
 	{
-		BLE_reply = "ERROR: Check the raw input from the sensor:\n" + message + '\n' + tmp_str;
-		debug(BLE_reply);
+		ble.BLE_reply = "ERROR: Check the raw input from the sensor:\n" + message + '\n' + tmp_str;
+		debug(ble.BLE_reply);
 		return;
 	}
 }
@@ -814,8 +591,8 @@ void temperature_handler(const std::string &message)
 	}
 	else
 	{
-		BLE_reply = "ERROR: Check the raw input from the sensor:\n" + message;
-		debug(BLE_reply);
+		ble.BLE_reply = "ERROR: Check the raw input from the sensor:\n" + message;
+		debug(ble.BLE_reply);
 		return;
 	}
 }
@@ -839,8 +616,8 @@ void inflow_low_handler(const std::string &message)
 
 		inflow_low_state = true;
 
-		BLE_reply = "Inflow low changed status to ON\n";
-		debug(BLE_reply);
+		ble.BLE_reply = "Inflow low changed status to ON\n";
+		debug(ble.BLE_reply);
 	}
 	else if (tmp == "off")
 	{
@@ -848,13 +625,13 @@ void inflow_low_handler(const std::string &message)
 
 		inflow_high_state = false;
 
-		BLE_reply = "Inflow low changed status to OFF\n";
-		debug(BLE_reply);
+		ble.BLE_reply = "Inflow low changed status to OFF\n";
+		debug(ble.BLE_reply);
 	}
 	else
 	{
-		BLE_reply = "ERROR: Invalid argument!\n";
-		debug(BLE_reply);
+		ble.BLE_reply = "ERROR: Invalid argument!\n";
+		debug(ble.BLE_reply);
 	}
 }
 
@@ -875,8 +652,8 @@ void inflow_high_handler(const std::string &message)
 
 		inflow_high_state = true;
 
-		BLE_reply = "Inflow high changed status to ON\n";
-		debug(BLE_reply);
+		ble.BLE_reply = "Inflow high changed status to ON\n";
+		debug(ble.BLE_reply);
 	}
 	else if (tmp == "off")
 	{
@@ -884,13 +661,13 @@ void inflow_high_handler(const std::string &message)
 
 		inflow_high_state = false;
 
-		BLE_reply = "Inflow high changed status to OFF\n";
-		debug(BLE_reply);
+		ble.BLE_reply = "Inflow high changed status to OFF\n";
+		debug(ble.BLE_reply);
 	}
 	else
 	{
-		BLE_reply = "ERROR: Invalid argument!\n";
-		debug(BLE_reply);
+		ble.BLE_reply = "ERROR: Invalid argument!\n";
+		debug(ble.BLE_reply);
 	}
 }
 
@@ -911,8 +688,8 @@ void exhaust_low_handler(const std::string &message)
 
 		exhaust_low_state = true;
 
-		BLE_reply = "Exhaust low changed status to ON\n";
-		debug(BLE_reply);
+		ble.BLE_reply = "Exhaust low changed status to ON\n";
+		debug(ble.BLE_reply);
 	}
 	else if (tmp == "off")
 	{
@@ -920,13 +697,13 @@ void exhaust_low_handler(const std::string &message)
 
 		exhaust_low_state = false;
 
-		BLE_reply = "Exhaust low changed status to OFF\n";
-		debug(BLE_reply);
+		ble.BLE_reply = "Exhaust low changed status to OFF\n";
+		debug(ble.BLE_reply);
 	}
 	else
 	{
-		BLE_reply = "ERROR: Invalid argument!\n";
-		debug(BLE_reply);
+		ble.BLE_reply = "ERROR: Invalid argument!\n";
+		debug(ble.BLE_reply);
 	}
 }
 
@@ -947,8 +724,8 @@ void exhaust_high_handler(const std::string &message)
 
 		exhaust_high_state = true;
 
-		BLE_reply = "Exhaust high changed status to ON\n";
-		debug(BLE_reply);
+		ble.BLE_reply = "Exhaust high changed status to ON\n";
+		debug(ble.BLE_reply);
 	}
 	else if (tmp == "off")
 	{
@@ -956,13 +733,13 @@ void exhaust_high_handler(const std::string &message)
 
 		exhaust_high_state = false;
 
-		BLE_reply = "Exhaust high changed status to OFF\n";
-		debug(BLE_reply);
+		ble.BLE_reply = "Exhaust high changed status to OFF\n";
+		debug(ble.BLE_reply);
 	}
 	else
 	{
-		BLE_reply = "ERROR: Invalid argument!\n";
-		debug(BLE_reply);
+		ble.BLE_reply = "ERROR: Invalid argument!\n";
+		debug(ble.BLE_reply);
 	}
 }
 
@@ -1069,40 +846,32 @@ void period_handler(const std::string &message)
 	/** TODO: Calculate timer parameters */
 }
 
-void ble_handler(const std::string &message)
-{
-	// uint8_t header_size = strlen("ble ");
-	// std::string tmp = message.substr(header_size, (message.size() - 2) - header_size);
-
-	p_serial_characteristic->writeValue("test");
-}
-
 void get_hub_handler(const std::string &message)
 {
-	GET_hub();
+	network.GET_hub();
 }
 
 void set_wifi_handler(const std::string &message)
 {
-	// std::vector<std::string> args;
-	// size_t pos = message.find(' ');
-	// size_t initialPos = 0;
+	std::vector<std::string> args;
+	size_t pos = message.find(' ');
+	size_t initialPos = 0;
 
-	// // Decompose statement
-	// while( pos != std::string::npos ) {
-	//     args.push_back(message.substr(initialPos, pos - initialPos));
-	//     initialPos = pos + 1;
+	// Decompose statement
+	while( pos != std::string::npos ) {
+	    args.push_back(message.substr(initialPos, pos - initialPos));
+	    initialPos = pos + 1;
 
-	//     pos = message.find(' ', initialPos );
-	// }
+	    pos = message.find(' ', initialPos );
+	}
 
-	// // Add the last one
-	// args.push_back(message.substr(initialPos, std::min(pos, message.size()) - initialPos + 1));
+	// Add the last one
+	args.push_back(message.substr(initialPos, std::min(pos, message.size()) - initialPos + 1));
 
-	// if (args.size() < 3) {
-	// 	Serial.println("Too few argumets");
-	// 	return;
-	// }
+	if (args.size() < 3) {
+		Serial.println("ERROR: Too few argumets");
+		return;
+	}
 
 	// if (args[1].size() > mem_wifi_ssid.size) {
 	// 	Serial.printf("The SSID size must be less than %d\n", mem_wifi_ssid.size);
@@ -1114,10 +883,10 @@ void set_wifi_handler(const std::string &message)
 	// 	return;
 	// }
 
-	// Serial.printf("Parsed SSID: %s and password: %s\n", args[1], args[2]);
+	Serial.printf("Parsed SSID: %s and password: %s\n", args[1], args[2]);
 
-	// ssid = args[1].c_str();
-	// password = args[2].c_str();
+	network.ssid = args[1].c_str();
+	network.password = args[2].c_str();
 
 	// std::memcpy(mem_wifi_ssid.data.get(), ssid.c_str(), ssid.length());
 	// std::memcpy(mem_wifi_pass.data.get(), password.c_str(), password.length());
@@ -1125,19 +894,24 @@ void set_wifi_handler(const std::string &message)
 	// memory_manager.save(mem_wifi_ssid);
 	// memory_manager.save(mem_wifi_pass);
 
-	// is_ssid_set = true;
-	// is_pass_set = true;
+	if (network.check_wifi_parameters()) {
+		Serial.println("INFO: Wi-Fi settings applied successfully!");
+	}
+	else {
+		Serial.println("ERROR: Wi-Fi settings are not applied!");
+	}
+
 }
 
 void wifi_connect_handler(const std::string &message)
 {
-	do_wifi_connect = true;
+	network.do_wifi_connect = true;
 }
 
 void data_request_handler(const std::string &message) {
 	/** TODO: Check if we connected to BLE server */
 
-	p_serial_characteristic->writeValue("d");
+	ble.p_serial_characteristic->writeValue("d");
 }
 
 /** TODO: This will be work only if the message starts with a command*/
@@ -1169,211 +943,4 @@ bool is_number(const std::string &s)
 	return !s.empty() && std::find_if(s.begin(),
 									  s.end(), [](unsigned char c)
 									  { return !std::isdigit(c); }) == s.end();
-}
-
-void POST_log()
-{
-	StaticJsonDocument<128> query;
-
-	query["log_value"] = "Just send some value to test Arduino JSON library and Arduino HTTP";
-	query["hub_id"] = hub_id;
-
-	String serialized_query;
-	serializeJson(query, serialized_query);
-
-	Serial.println(serialized_query);
-
-	https.begin(url + log_endpoint);
-	int httpCode = https.POST(serialized_query);
-
-	if (httpCode > 0)
-	{
-		String payload = https.getString();
-		Serial.println(httpCode);
-		Serial.println(payload);
-
-		// StaticJsonDocument<128> reply;
-		// DeserializationError error = deserializeJson(reply, payload);
-
-		// if (error) {
-		// 	Serial.println("Deserialization error!");
-		// 	return;
-		// }
-
-		// if (reply["status"] != "OK") {
-		// 	Serial.println(httpCode);
-		// 	Serial.println(payload);
-		// }
-		// else {
-		// 	Serial.println("OK");
-		// }
-	}
-	else
-	{
-		Serial.println("HTTP-request error");
-	}
-
-	https.end();
-}
-
-void POST_temp()
-{
-	Serial.println("=======================================");
-	StaticJsonDocument<128> query;
-
-	query["temperature_value"] = String(random(-2000, 2100) / 100.);
-	query["hub_id"] = hub_id;
-	query["sensor_id"] = sensor_id;
-
-	String serialized_query;
-	serializeJson(query, serialized_query);
-
-	Serial.println(serialized_query);
-
-	https.begin(url + temp_endpoint);
-	int httpCode = https.POST(serialized_query);
-
-	if (httpCode > 0)
-	{
-		String payload = https.getString();
-
-		Serial.println(httpCode);
-		Serial.println(payload);
-
-		// StaticJsonDocument<128> reply;
-		// DeserializationError error = deserializeJson(reply, payload);
-
-		// if (error) {
-		// 	Serial.println("Deserialization error!");
-		// 	return;
-		// }
-
-		// if (reply["status"] != "OK") {
-		// 	Serial.println(httpCode);
-		// 	Serial.println(payload);
-		// }
-		// else {
-		// 	Serial.println("OK");
-		// }
-	}
-	else
-	{
-		Serial.println("HTTP-request error");
-	}
-
-	https.end();
-	Serial.println("=======================================");
-}
-
-void POST_hum()
-{
-	Serial.println("=======================================");
-	StaticJsonDocument<128> query;
-
-	// query["humidity_value"] = String(random(20, 81));
-	query["humidity_value"] = String(curr_hum_value);
-	query["hub_id"] = hub_id;
-	query["sensor_id"] = sensor_id;
-
-	String serialized_query;
-	serializeJson(query, serialized_query);
-
-	Serial.println(serialized_query);
-
-	bool status = https.begin(url + hum_endpoint);
-
-	if(status == false) {
-		Serial.println("Couldn't start GET hub https session!");
-		https.end();
-		return;
-	}
-
-	int httpCode = https.POST(serialized_query);
-
-	if (httpCode > 0)
-	{
-		String payload = https.getString();
-
-		Serial.println(httpCode);
-		Serial.println(payload);
-
-		// StaticJsonDocument<128> reply;
-		// DeserializationError error = deserializeJson(reply, payload);
-
-		// if (error) {
-		// 	Serial.println("Deserialization error!");
-		// 	return;
-		// }
-
-		// if (reply["status"] != "OK") {
-		// 	Serial.println(httpCode);
-		// 	Serial.println(payload);
-		// }
-		// else {
-		// 	Serial.println("OK");
-		// }
-	}
-	else
-	{
-		Serial.printf("HTTPS POST humidiy ERROR: %d\n", httpCode);
-	}
-
-	https.end();
-	Serial.println("=======================================");
-}
-
-void GET_hub()
-{
-	Serial.println("=======================================");
-	StaticJsonDocument<1024> reply;
-
-	bool status = https.begin(url + hub_get_endpoint + String(establishment_id));
-
-	if(status == false) {
-		Serial.println("Couldn't start GET hub https session!");
-		https.end();
-		return;
-	}
-
-	int httpCode = https.GET();
-
-	if (httpCode > 0)
-	{
-		String &&payload = https.getString();
-
-		Serial.printf("HTTP Status code: %d\n", httpCode);
-		Serial.println(payload);
-
-		DeserializationError error = deserializeJson(reply, payload);
-
-		if (error)
-		{
-			Serial.printf("Deserialization error: %d!\n", error);
-			return;
-		}
-
-		bool relay_status = reply["compressor_relay_status"];
-
-		Serial.println(relay_status);
-
-		digitalWrite(22, relay_status);
-		digitalWrite(LED_BUILTIN, relay_status);
-	}
-	else {
-		Serial.printf("HTTPS GET hub ERROR: %d\n", httpCode);
-	}
-
-	https.end();
-
-	Serial.println("=======================================");
-}
-
-bool wifi_connect()
-{
-	WiFi.begin(ssid, password);
-
-	if (WiFi.status() != WL_CONNECTED)
-		return false;
-
-	return true;
 }
