@@ -5,14 +5,29 @@
 #include <ArduinoJson.h>
 #include <WiFiClientSecure.h>
 
+struct WiFi_Config {
+    char ssid[16] = {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1};
+    char pass[16] = {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1};
+    byte mode;
+};
+
+struct RemoteServerConfig {
+    char url[32];
+    uint32_t hub_id;
+    uint32_t sensor_id;
+    uint32_t establishment_id;
+};
+
 class Network {
 public:
     Network();
     ~Network();
 
     bool wifi_connect();
-    bool check_wifi_parameters();
-    bool check_wifi_connection();
+    void handle_disconnect();
+
+    bool load_settings();
+    bool save_settings();
     
     // REST API functions
     void POST_log(const std::string_view& log_string);
@@ -20,24 +35,20 @@ public:
     void POST_hum(const uint8_t& humidity_value);
     void GET_hub();
 
-    const String blank_ssid = "blank_ssid";
-    const String blank_pass = "blank_pass";
-    const String blank_url = "blank_url";
+    WiFi_Config wifi_cfg;
+    RemoteServerConfig server_cfg;
 
-    String ssid = blank_ssid;
-    String password = blank_pass;
-    String url = blank_url;
-
-    // const char *ssid = "Redmi 10";
+    // const char *ssid = "Redmi10";
     // const char *password = "123456789q";
     // const char *url = "https://serverpd.ru";
 
-    bool do_wifi_connect = false;
+    bool do_wifi_connect = true;
 
     bool is_wifi_settings_initialized = false;
     bool is_wifi_connection_establish = false;
 
     HTTPClient https;
+    WiFiClientSecure *client;
 
     // Endpoints
     String temp_endpoint = String("/hub/temperature");

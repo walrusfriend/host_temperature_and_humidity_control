@@ -26,6 +26,10 @@ public:
     std::string BLE_reply;
     std::string BLE_reply_to_sensor;
 
+    static uint8_t curr_hum_value;
+    static uint8_t curr_temp_value;
+    static uint8_t curr_battery_value;
+
     bool connectToServer();
     
     static void notifyCallback(

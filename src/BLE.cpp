@@ -4,8 +4,12 @@ bool BLE::is_data_from_BLE_received = false;
 bool BLE::do_BLE_connect = true;
 bool BLE::connected = false;
 bool BLE::doScan = false;
+uint8_t BLE::curr_hum_value = 0xff;
+uint8_t BLE::curr_temp_value = 0xff;
+uint8_t BLE::curr_battery_value = 100;
 
 BLE::BLE() {
+
 }
 
 BLE::~BLE() {
@@ -74,10 +78,6 @@ void BLE::notifyCallback(
 	if (pData[0] == 'd')
 	{
 		if (pData[2] == 't' && pData[6] == 'h') {
-			/** TODO: Связать пришедшие данные с глобальными переменными */
-            uint8_t curr_temp_value;
-            uint8_t curr_hum_value;
-
 			std::string temp_str;
 			temp_str += pData[3];
 			temp_str += pData[4];

@@ -13,57 +13,23 @@ Network::~Network() {
 bool Network::wifi_connect()
 {
 	WiFi.mode(WIFI_STA);
-	WiFi.begin(ssid, password);
+	WiFi.begin(wifi_cfg.ssid, wifi_cfg.pass);
 
-	uint8_t wifi_connection_tries = 0;
-	while (WiFi.status() != WL_CONNECTED)
-	{
-		Serial.printf(".");
-
-		if (wifi_connection_tries >= MAX_WIFI_CONNECTION_TRIES) {
-			Serial.println("ERROR: Couldn't connect to Wi-Fi network!"
-							"Please restart the device or set other Wi-Fi SSID and password!");
-
-			is_wifi_settings_initialized = false;
-			return false;
-		}
-
-		delay(500);
-	}
-
-	WiFiClientSecure *client = new WiFiClientSecure;
-
-	if (client)
-	{
-		// set secure client without certificate
-		client->setInsecure();
-	}
-	else
-	{
-		Serial.printf("ERROR: [HTTPS] Unable to connect\n");
-		return false;
-	}
-
-	Serial.println("Connected");
-	is_wifi_connection_establish = true;
-	return true;
+	return WiFi.status() == WL_CONNECTED;
 }
 
-bool Network::check_wifi_parameters() {
-	// Check if Wi-Fi parameters are initialized
-	if (ssid == blank_ssid && password == blank_pass) {
-		Serial.println("ERROR: Wi-Fi settings are not initialized!\n"
-					   "Please use set_wifi command to setup Wi-Fi connection.");
-		is_wifi_settings_initialized = false;
-		return false;
-	}
+void Network::handle_disconnect() {
+	do_wifi_connect = true;
 
-	is_wifi_settings_initialized = true;
-	return true;
+	delete client;
 }
 
-bool Network::check_wifi_connection() {
-	return (WiFi.status() == WL_CONNECTED) ? true : false;
+bool Network::load_settings() {
+
+}
+
+bool Network::save_settings() {
+	
 }
 
 void Network::POST_log(const std::string_view& log_string) {
@@ -77,7 +43,7 @@ void Network::POST_log(const std::string_view& log_string) {
 
 	Serial.println(serialized_query);
 
-	https.begin(url + log_endpoint);
+	https.begin(server_cfg.url + log_endpoint);
 	int httpCode = https.POST(serialized_query);
 
 	if (httpCode > 0)
@@ -122,7 +88,7 @@ void Network::POST_temp(const uint8_t& temperature_value) {
 
 	Serial.println(serialized_query);
 
-	https.begin(url + temp_endpoint);
+	https.begin(server_cfg.url + temp_endpoint);
 	int httpCode = https.POST(serialized_query);
 
 	if (httpCode > 0)
@@ -171,7 +137,7 @@ void Network::POST_hum(const uint8_t& humidity_value) {
 
 	Serial.println(serialized_query);
 
-	bool status = https.begin(url + hum_endpoint);
+	bool status = https.begin(server_cfg.url + hum_endpoint);
 
 	if(status == false) {
 		Serial.println("Couldn't start GET hub https session!");
@@ -217,7 +183,7 @@ void Network::POST_hum(const uint8_t& humidity_value) {
 void Network::GET_hub() {
 	StaticJsonDocument<1024> reply;
 
-	bool status = https.begin(url + hub_get_endpoint + String(establishment_id));
+	bool status = https.begin(server_cfg.url + hub_get_endpoint + String(establishment_id));
 
 	if(status == false) {
 		Serial.println("Couldn't start GET hub https session!");
