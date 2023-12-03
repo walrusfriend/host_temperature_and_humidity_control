@@ -310,9 +310,11 @@ void setup()
 				  network.server_cfg.url,
 				  network.server_cfg.hub_id);
 
-	xTaskCreate(wifi_task_connect, "wifi_connect", 4096, nullptr, 1, &wifi_connect_task_handle);
-	xTaskCreate(BLE_task_connect, "task_connect", 4096, nullptr, 1, &BLE_connect_task_handle);
-	xTaskCreate(task_input_serial, "task_input_serial", 4096, nullptr, 2, &input_serial_task_handle);
+	wifi_task_connect(nullptr);
+
+	// xTaskCreate(wifi_task_connect, "wifi_connect", 4096, nullptr, 1, &wifi_connect_task_handle);
+	// xTaskCreate(BLE_task_connect, "task_connect", 4096, nullptr, 1, &BLE_connect_task_handle);
+	// xTaskCreate(task_input_serial, "task_input_serial", 4096, nullptr, 2, &input_serial_task_handle);
 
 	delay(2000);
 
@@ -336,10 +338,10 @@ void loop()
 {
 	// if (is_status_tim)
 	// {
-		Serial.println("On hub status hanlder");
 		// Check the current connection status
 		if ((WiFi.status() == WL_CONNECTED))
 		{
+			Serial.println("On hub status hanlder");
 			network.GET_hub();
 		}
 		else
@@ -384,6 +386,83 @@ void loop()
 		}
 		ble.is_data_from_BLE_received = false;
 	}
+
+	if (network.do_wifi_connect)
+	{
+		Serial.printf("Try to connect to Wi-Fi with ssid: %s and password: %s\n", 
+						network.wifi_cfg.ssid, network.wifi_cfg.pass);
+		
+		WiFi.mode(WIFI_STA);
+		WiFi.begin(network.wifi_cfg.ssid, network.wifi_cfg.pass);
+
+		uint8_t wifi_connection_tries = 0;
+		while (WiFi.status() != WL_CONNECTED)
+		{
+			Serial.printf(".");
+
+			if (wifi_connection_tries >= Network::MAX_WIFI_CONNECTION_TRIES) {
+				Serial.printf("ERROR: Couldn't connect to Wi-Fi network with ssid: %s and password: %s!\n"
+								"Please restart the device or set other Wi-Fi SSID and password!\n",
+								network.wifi_cfg.ssid, network.wifi_cfg.pass);
+				wifi_connection_tries = 0;
+				network.do_wifi_connect = false;
+			}
+
+			++wifi_connection_tries;
+
+			delay(500);
+		};
+
+		network.client = new WiFiClientSecure;
+
+		if (network.client)
+		{
+			// set secure client without certificate
+			network.client->setInsecure();
+		}
+		else
+		{
+			Serial.printf("ERROR: [HTTPS] Unable to connect\n");
+		}
+
+		Serial.println("Wi-Fi connected");
+		Serial.println();
+
+		network.do_wifi_connect = false;
+	}
+
+
+	if (ble.do_BLE_connect == true)
+	{
+		Serial.println("Try to connect to BLE");
+		uint8_t number_of_unsuccessful_connections = 0;
+		while (ble.connectToServer() == false)
+		{
+			Serial.printf(".");
+
+			// ++number_of_unsuccessful_connections;
+
+			// if (number_of_unsuccessful_connections > 10) {
+			// 	Serial.println("ERROR: Failed to connect to the server!");
+			// 	break;
+			// }
+
+			delay(500);
+		};
+		Serial.println();
+		ble.do_BLE_connect = false;
+
+		Serial.println("BLE connected!");
+	}
+
+	if (Serial.available() >= 1)
+	{
+		char sym[Serial.available()];
+		Serial.read(sym, Serial.available());
+
+		parse_message(std::string(sym));
+	}
+
 }
 
 void compare_hum()
