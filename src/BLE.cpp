@@ -102,6 +102,5 @@ void BLE::notifyCallback(
 			Serial.println((char*)pData);
 		}
 		Serial.println();
-		Serial.println();
 	}
 }

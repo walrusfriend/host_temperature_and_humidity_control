@@ -38,10 +38,6 @@ public:
     WiFi_Config wifi_cfg;
     RemoteServerConfig server_cfg;
 
-    // const char *ssid = "Redmi10";
-    // const char *password = "123456789q";
-    // const char *url = "https://serverpd.ru";
-
     bool do_wifi_connect = true;
 
     bool is_wifi_settings_initialized = false;

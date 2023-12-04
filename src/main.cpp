@@ -40,6 +40,13 @@ bool exhaust_high_state = false;
 
 void compare_hum();
 
+void status_tim_function();
+void sensor_tim_function();
+void connect_to_wifi();
+void sensor_data_send_to_remote_server();
+void connect_to_BLE();
+void check_COM_port();
+
 struct Command
 {
 	std::string name;
@@ -121,8 +128,8 @@ static const std::vector<Command> command_list = {
 
 Network network;
 
-hw_timer_t *tim1;
-hw_timer_t *tim2;
+hw_timer_t *status_timer;
+hw_timer_t *sensor_timer;
 
 bool is_status_tim = false;
 bool is_sensor_tim = false;
@@ -134,124 +141,6 @@ void IRAM_ATTR onStatusTimer()
 
 void IRAM_ATTR onSensorTimer() {
 	is_sensor_tim = true;
-}
-
-/** TODO: Move this code to the right place */
-TaskHandle_t wifi_connect_task_handle;
-TaskHandle_t BLE_connect_task_handle;
-TaskHandle_t input_serial_task_handle;
-
-void wifi_task_connect(void *param)
-{
-	Serial.println("Connect to Wi-Fi");
-
-	for (;;)
-	{
-		if (network.do_wifi_connect)
-		{
-			Serial.printf("Try to connect to Wi-Fi with ssid: %s and password: %s\n", 
-						  network.wifi_cfg.ssid, network.wifi_cfg.pass);
-			
-			WiFi.mode(WIFI_STA);
-			WiFi.begin(network.wifi_cfg.ssid, network.wifi_cfg.pass);
-
-			uint8_t wifi_connection_tries = 0;
-			// while (network.wifi_connect() == false)
-			while (WiFi.status() != WL_CONNECTED)
-			{
-				Serial.printf(".");
-
-				if (wifi_connection_tries >= Network::MAX_WIFI_CONNECTION_TRIES) {
-					Serial.printf("ERROR: Couldn't connect to Wi-Fi network with ssid: %s and password: %s!\n"
-								   "Please restart the device or set other Wi-Fi SSID and password!\n",
-								   network.wifi_cfg.ssid, network.wifi_cfg.pass);
-					wifi_connection_tries = 0;
-					network.do_wifi_connect = false;
-				}
-
-				++wifi_connection_tries;
-
-				vTaskDelay(500);
-			};
-
-			network.client = new WiFiClientSecure;
-
-			if (network.client)
-			{
-				// set secure client without certificate
-				network.client->setInsecure();
-			}
-			else
-			{
-				Serial.printf("ERROR: [HTTPS] Unable to connect\n");
-			}
-
-			Serial.println("Connected");
-			Serial.println();
-
-			network.do_wifi_connect = false;
-		}
-
-		// Check for Wi-Fi disconnetion
-		// if (WiFi.status() != WL_CONNECTED) {
-		// 	network.handle_disconnect();
-		// }
-
-		vTaskDelay(500);
-	}
-}
-
-void BLE_task_connect(void *param)
-{
-	BLEDevice::init("DewPoint");
-	Serial.println("Starting BLE work!");
-
-	for (;;)
-	{
-		// If the flag "doConnect" is true then we have scanned for and found the desired
-		// BLE Server with which we wish to connect.  Now we connect to it.  Once we are
-		// connected we set the connected flag to be true.
-		if (ble.do_BLE_connect == true)
-		{
-			Serial.println("Try to connect to BLE");
-			uint8_t number_of_unsuccessful_connections = 0;
-			while (ble.connectToServer() == false)
-			{
-				Serial.printf(".");
-
-				// ++number_of_unsuccessful_connections;
-
-				// if (number_of_unsuccessful_connections > 10) {
-				// 	Serial.println("ERROR: Failed to connect to the server!");
-				// 	break;
-				// }
-
-				vTaskDelay(500);
-			};
-			Serial.println();
-			ble.do_BLE_connect = false;
-
-			Serial.println("Connected!");
-		}
-		vTaskDelay(500);
-	}
-}
-
-void task_input_serial(void *param)
-{
-	for (;;)
-	{
-		// Handle COM port input data
-		if (Serial.available() >= 1)
-		{
-			char sym[Serial.available()];
-			Serial.read(sym, Serial.available());
-
-			parse_message(std::string(sym));
-		}
-
-		vTaskDelay(100);
-	}
 }
 
 void setup()
@@ -300,6 +189,7 @@ void setup()
 
 	EEPROM.get(address_to_read, network.server_cfg);
 
+	/** TODO: Create full load log */
 	Serial.printf("DEBUG: Readed data from EEPROM:\n"
 				  "ssid: %s\n"
 				  "pass: %s\n"
@@ -310,25 +200,21 @@ void setup()
 				  network.server_cfg.url,
 				  network.server_cfg.hub_id);
 
-	wifi_task_connect(nullptr);
 
-	// xTaskCreate(wifi_task_connect, "wifi_connect", 4096, nullptr, 1, &wifi_connect_task_handle);
-	// xTaskCreate(BLE_task_connect, "task_connect", 4096, nullptr, 1, &BLE_connect_task_handle);
-	// xTaskCreate(task_input_serial, "task_input_serial", 4096, nullptr, 2, &input_serial_task_handle);
-
-	delay(2000);
+	BLEDevice::init("DewPoint");
+	Serial.println("Starting BLE work!");
 
 	// 1s timer
-	// tim1 = timerBegin(0, 8000 - 1, true);
-	// timerAttachInterrupt(tim1, &onStatusTimer, true);
-	// timerAlarmWrite(tim1, 10000 - 1, true);
-	// timerAlarmEnable(tim1);
+	status_timer = timerBegin(0, 8000 - 1, true);
+	timerAttachInterrupt(status_timer, &onStatusTimer, true);
+	// timerAlarmWrite(status_timer, 10000 - 1, true);
+	timerAlarmWrite(status_timer, 100000 - 1, true);
 	
 	// Set timer to 5 mins
-	// tim2 = timerBegin(1, 8000 - 1, true);
-	// timerAttachInterrupt(tim2, &onSensorTimer, true);
-	// timerAlarmWrite(tim2, 50000 - 1, true);
-	// timerAlarmEnable(tim2);
+	sensor_timer = timerBegin(1, 8000 - 1, true);
+	timerAttachInterrupt(sensor_timer, &onSensorTimer, true);
+	// timerAlarmWrite(sensor_timer, 50000 - 1, true);
+	timerAlarmWrite(sensor_timer, 300000 - 1, true);
 
 	pinMode(22, OUTPUT);
 	pinMode(LED_BUILTIN, OUTPUT);
@@ -336,133 +222,22 @@ void setup()
 
 void loop()
 {
-	// if (is_status_tim)
-	// {
-		// Check the current connection status
-		if ((WiFi.status() == WL_CONNECTED))
-		{
-			Serial.println("On hub status hanlder");
-			network.GET_hub();
-		}
-		else
-		{
-			WiFi.reconnect();
-
-			/** TODO: Add a timeout */
-			while (WiFi.status() != WL_CONNECTED) {
-				Serial.printf(".");
-				delay(1000);
-			}
-		}
-		Serial.println();
-
-		delay(500);
-
-	// 	is_status_tim = false;
-	// }
-
-	if (is_sensor_tim) {
-		Serial.println("On sensor parameters handler");
-		ble.p_serial_characteristic->writeValue("d");
-		is_sensor_tim = false;
-	}
-
-	if (ble.is_data_from_BLE_received) {
-		Serial.println("On BLE data recived handler");
-		/** TODO: Нужно посылать значение, пока оно не будет принято.
-		 * 	Возможно, даже складывать значения в очередь, пока всё не будет отправлено.
-		 * 	Также со всеми запросами - нужно удостовериться, что запрос дошёл и, если нет,
-		 * 	то отправлять запрос до тех пор, пока не получится отправить.
-		 * 	Можно генерировать логи, что не было связи с сервером в какое-то время.
-		 * 	Нужно настроить время на борту, чтобы привязывать логи к "бортовому" времени.
-		*/
-		
-		// Check the current connection status
-		if ((WiFi.status() == WL_CONNECTED))
-		{
-			network.POST_hum(ble.curr_hum_value);
-			delay(100);
-			network.POST_temp(ble.curr_temp_value);
-		}
-		ble.is_data_from_BLE_received = false;
-	}
+	if (ble.do_BLE_connect == true)
+		connect_to_BLE();
 
 	if (network.do_wifi_connect)
-	{
-		Serial.printf("Try to connect to Wi-Fi with ssid: %s and password: %s\n", 
-						network.wifi_cfg.ssid, network.wifi_cfg.pass);
-		
-		WiFi.mode(WIFI_STA);
-		WiFi.begin(network.wifi_cfg.ssid, network.wifi_cfg.pass);
+		connect_to_wifi();
 
-		uint8_t wifi_connection_tries = 0;
-		while (WiFi.status() != WL_CONNECTED)
-		{
-			Serial.printf(".");
+	if (is_status_tim)
+		status_tim_function();
 
-			if (wifi_connection_tries >= Network::MAX_WIFI_CONNECTION_TRIES) {
-				Serial.printf("ERROR: Couldn't connect to Wi-Fi network with ssid: %s and password: %s!\n"
-								"Please restart the device or set other Wi-Fi SSID and password!\n",
-								network.wifi_cfg.ssid, network.wifi_cfg.pass);
-				wifi_connection_tries = 0;
-				network.do_wifi_connect = false;
-			}
+	if (is_sensor_tim)
+		sensor_tim_function();
 
-			++wifi_connection_tries;
+	if (ble.is_data_from_BLE_received)
+		sensor_data_send_to_remote_server();
 
-			delay(500);
-		};
-
-		network.client = new WiFiClientSecure;
-
-		if (network.client)
-		{
-			// set secure client without certificate
-			network.client->setInsecure();
-		}
-		else
-		{
-			Serial.printf("ERROR: [HTTPS] Unable to connect\n");
-		}
-
-		Serial.println("Wi-Fi connected");
-		Serial.println();
-
-		network.do_wifi_connect = false;
-	}
-
-
-	if (ble.do_BLE_connect == true)
-	{
-		Serial.println("Try to connect to BLE");
-		uint8_t number_of_unsuccessful_connections = 0;
-		while (ble.connectToServer() == false)
-		{
-			Serial.printf(".");
-
-			// ++number_of_unsuccessful_connections;
-
-			// if (number_of_unsuccessful_connections > 10) {
-			// 	Serial.println("ERROR: Failed to connect to the server!");
-			// 	break;
-			// }
-
-			delay(500);
-		};
-		Serial.println();
-		ble.do_BLE_connect = false;
-
-		Serial.println("BLE connected!");
-	}
-
-	if (Serial.available() >= 1)
-	{
-		char sym[Serial.available()];
-		Serial.read(sym, Serial.available());
-
-		parse_message(std::string(sym));
-	}
-
+	check_COM_port();
 }
 
 void compare_hum()
@@ -874,12 +649,12 @@ void rand_handler(const std::string &message)
 
 void start_handler(const std::string &message)
 {
-	timerAlarmEnable(tim1);
+	timerAlarmEnable(status_timer);
 }
 
 void stop_handler(const std::string &message)
 {
-	timerAlarmDisable(tim1);
+	timerAlarmDisable(status_timer);
 }
 
 void period_handler(const std::string &message)
@@ -892,7 +667,7 @@ void period_handler(const std::string &message)
 	if (is_number(tmp))
 	{
 		uint32_t timer_value_ms = std::stoi(tmp);
-		timerAlarmWrite(tim1, timer_value_ms * 10 - 1, true);
+		timerAlarmWrite(status_timer, timer_value_ms * 10 - 1, true);
 		Serial.printf("Set timer period to %d ms\n", timer_value_ms);
 	}
 	else
@@ -1011,7 +786,135 @@ void debug(const std::string &debug_info) {}
 
 bool is_number(const std::string &s)
 {
-	return !s.empty() && std::find_if(s.begin(),
-									  s.end(), [](unsigned char c)
-									  { return !std::isdigit(c); }) == s.end();
+	return !s.empty() && 
+			std::find_if(s.begin(),
+						s.end(), [](unsigned char c)
+						{ return !std::isdigit(c); }) == s.end();
+}
+
+void status_tim_function() {
+	// Check the current connection status
+	if ((WiFi.status() == WL_CONNECTED))
+	{
+		Serial.println("On status handler");
+		network.GET_hub();
+	}
+	else
+	{
+		network.handle_disconnect();
+	}
+	is_status_tim = false;
+}
+
+void sensor_tim_function() {
+	ble.p_serial_characteristic->writeValue("d");
+	is_sensor_tim = false;
+}
+
+void connect_to_wifi() {
+	/** TODO: Reconnect does not working */
+	Serial.printf("Try to connect to Wi-Fi with ssid: %s and password: %s\n", 
+					network.wifi_cfg.ssid, network.wifi_cfg.pass);
+	
+	WiFi.mode(WIFI_STA);
+	WiFi.begin(network.wifi_cfg.ssid, network.wifi_cfg.pass);
+
+	uint8_t wifi_connection_tries = 0;
+	bool is_connection_successful = true;
+	while (WiFi.status() != WL_CONNECTED)
+	{
+		Serial.printf(".");
+
+		if (wifi_connection_tries >= Network::MAX_WIFI_CONNECTION_TRIES) {
+			Serial.printf("ERROR: Couldn't connect to Wi-Fi network with ssid: %s and password: %s!\n"
+							"Please restart the device or set other Wi-Fi SSID and password!\n",
+							network.wifi_cfg.ssid, network.wifi_cfg.pass);
+			wifi_connection_tries = 0;
+			is_connection_successful = false;
+			WiFi.disconnect();
+			break;
+		}
+
+		++wifi_connection_tries;
+
+		delay(100);
+	};
+
+	if (is_connection_successful) {
+		// Check that old client object has been deleted
+		if (network.client != nullptr) {
+			Serial.println("INFO: Previous client object has not been deleted!");
+			delete network.client;
+		}
+
+		network.client = new WiFiClientSecure;
+
+		if (network.client)
+			network.client->setInsecure();
+		else
+			Serial.printf("ERROR: [HTTPS] Unable to connect\n");
+
+		Serial.println("Wi-Fi connected");
+		Serial.println();
+
+		network.do_wifi_connect = false;
+
+		timerAlarmEnable(status_timer);
+		timerAlarmEnable(sensor_timer);
+	}
+}
+
+void sensor_data_send_to_remote_server() {
+	Serial.println("On BLE data recived handler");
+	/** TODO: Нужно посылать значение, пока оно не будет принято.
+	 * 	Возможно, даже складывать значения в очередь, пока всё не будет отправлено.
+	 * 	Также со всеми запросами - нужно удостовериться, что запрос дошёл и, если нет,
+	 * 	то отправлять запрос до тех пор, пока не получится отправить.
+	 * 	Можно генерировать логи, что не было связи с сервером в какое-то время.
+	 * 	Нужно настроить время на борту, чтобы привязывать логи к "бортовому" времени.
+	*/
+	
+	// Check the current connection status
+	if ((WiFi.status() == WL_CONNECTED))
+	{
+		network.POST_hum(ble.curr_hum_value);
+		delay(100);
+		network.POST_temp(ble.curr_temp_value);
+	}
+	else {
+		network.handle_disconnect();
+	}
+	ble.is_data_from_BLE_received = false;
+}
+
+void connect_to_BLE() {
+	Serial.println("Try to connect to BLE");
+	uint8_t number_of_unsuccessful_connections = 0;
+	while (ble.connectToServer() == false)
+	{
+		Serial.printf(".");
+
+		++number_of_unsuccessful_connections;
+
+		if (number_of_unsuccessful_connections > 10) {
+			Serial.println("ERROR: Failed to connect to the BLE server!");
+			break;
+		}
+
+		delay(100);
+	};
+	Serial.println();
+	ble.do_BLE_connect = false;
+
+	Serial.println("BLE connected!");
+}
+
+void check_COM_port() {
+	if (Serial.available() >= 1)
+	{
+		char sym[Serial.available()];
+		Serial.read(sym, Serial.available());
+
+		parse_message(std::string(sym));
+	}
 }

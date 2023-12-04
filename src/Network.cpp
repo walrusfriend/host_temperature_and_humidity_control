@@ -2,6 +2,9 @@
 
 #include <string>
 
+extern hw_timer_t *status_timer;
+extern hw_timer_t *sensor_timer;
+
 Network::Network() {
 
 }
@@ -19,9 +22,15 @@ bool Network::wifi_connect()
 }
 
 void Network::handle_disconnect() {
+	Serial.println("Wi-Fi connection lost");
+	timerAlarmDisable(status_timer);
+	timerAlarmDisable(sensor_timer);
 	do_wifi_connect = true;
 
 	delete client;
+	client = nullptr;
+
+	WiFi.disconnect();
 }
 
 bool Network::load_settings() {
@@ -41,32 +50,28 @@ void Network::POST_log(const std::string_view& log_string) {
 	String serialized_query;
 	serializeJson(query, serialized_query);
 
-	Serial.println(serialized_query);
-
 	https.begin(server_cfg.url + log_endpoint);
 	int httpCode = https.POST(serialized_query);
 
 	if (httpCode > 0)
 	{
 		String payload = https.getString();
-		Serial.println(httpCode);
-		Serial.println(payload);
 
-		// StaticJsonDocument<128> reply;
-		// DeserializationError error = deserializeJson(reply, payload);
+		StaticJsonDocument<128> reply;
+		DeserializationError error = deserializeJson(reply, payload);
 
-		// if (error) {
-		// 	Serial.println("Deserialization error!");
-		// 	return;
-		// }
+		if (error) {
+			Serial.println("Deserialization error!");
+			return;
+		}
 
-		// if (reply["status"] != "OK") {
-		// 	Serial.println(httpCode);
-		// 	Serial.println(payload);
-		// }
-		// else {
-		// 	Serial.println("OK");
-		// }
+		if (reply["status"] != "OK") {
+			Serial.println(httpCode);
+			Serial.println(payload);
+		}
+		else {
+			Serial.println("Log: OK");
+		}
 	}
 	else
 	{
@@ -74,19 +79,18 @@ void Network::POST_log(const std::string_view& log_string) {
 	}
 
 	https.end();
+	Serial.println();
 }
 
 void Network::POST_temp(const uint8_t& temperature_value) {
 	StaticJsonDocument<128> query;
 
-	query["temperature_value"] = temperature_value;
+	query["temperature_value"] = String(temperature_value);
 	query["hub_id"] = hub_id;
 	query["sensor_id"] = sensor_id;
 
 	String serialized_query;
 	serializeJson(query, serialized_query);
-
-	Serial.println(serialized_query);
 
 	https.begin(server_cfg.url + temp_endpoint);
 	int httpCode = https.POST(serialized_query);
@@ -95,24 +99,21 @@ void Network::POST_temp(const uint8_t& temperature_value) {
 	{
 		String payload = https.getString();
 
-		Serial.println(httpCode);
-		Serial.println(payload);
+		StaticJsonDocument<128> reply;
+		DeserializationError error = deserializeJson(reply, payload);
 
-		// StaticJsonDocument<128> reply;
-		// DeserializationError error = deserializeJson(reply, payload);
+		if (error) {
+			Serial.println("Deserialization error!");
+			return;
+		}
 
-		// if (error) {
-		// 	Serial.println("Deserialization error!");
-		// 	return;
-		// }
-
-		// if (reply["status"] != "OK") {
-		// 	Serial.println(httpCode);
-		// 	Serial.println(payload);
-		// }
-		// else {
-		// 	Serial.println("OK");
-		// }
+		if (reply["status"] != "OK") {
+			Serial.println(httpCode);
+			Serial.println(payload);
+		}
+		else {
+			Serial.println("Temperature: OK");
+		}
 	}
 	else
 	{
@@ -121,21 +122,17 @@ void Network::POST_temp(const uint8_t& temperature_value) {
 
 	https.end();
 	Serial.println();
-	Serial.println();
 }
 
 void Network::POST_hum(const uint8_t& humidity_value) {
 	StaticJsonDocument<128> query;
 
-	// query["humidity_value"] = String(random(20, 81));
 	query["humidity_value"] = String(humidity_value);
 	query["hub_id"] = hub_id;
 	query["sensor_id"] = sensor_id;
 
 	String serialized_query;
 	serializeJson(query, serialized_query);
-
-	Serial.println(serialized_query);
 
 	bool status = https.begin(server_cfg.url + hum_endpoint);
 
@@ -151,24 +148,21 @@ void Network::POST_hum(const uint8_t& humidity_value) {
 	{
 		String payload = https.getString();
 
-		Serial.println(httpCode);
-		Serial.println(payload);
+		StaticJsonDocument<128> reply;
+		DeserializationError error = deserializeJson(reply, payload);
 
-		// StaticJsonDocument<128> reply;
-		// DeserializationError error = deserializeJson(reply, payload);
+		if (error) {
+			Serial.println("Deserialization error!");
+			return;
+		}
 
-		// if (error) {
-		// 	Serial.println("Deserialization error!");
-		// 	return;
-		// }
-
-		// if (reply["status"] != "OK") {
-		// 	Serial.println(httpCode);
-		// 	Serial.println(payload);
-		// }
-		// else {
-		// 	Serial.println("OK");
-		// }
+		if (reply["status"] != "OK") {
+			Serial.println(httpCode);
+			Serial.println(payload);
+		}
+		else {
+			Serial.println("Humidity: OK");
+		}
 	}
 	else
 	{
@@ -176,7 +170,6 @@ void Network::POST_hum(const uint8_t& humidity_value) {
 	}
 
 	https.end();
-	Serial.println();
 	Serial.println();
 }
 
@@ -198,7 +191,6 @@ void Network::GET_hub() {
 		String &&payload = https.getString();
 
 		Serial.printf("HTTP Status code: %d\n", httpCode);
-		Serial.println(payload);
 
 		DeserializationError error = deserializeJson(reply, payload);
 
@@ -208,9 +200,12 @@ void Network::GET_hub() {
 			return;
 		}
 
+		uint8_t hum_max_value = reply["humidity_upper_limit"];
+		uint8_t hum_min_value = reply["humidity_lower_limit"];
 		bool relay_status = reply["compressor_relay_status"];
 
-		Serial.println(relay_status);
+		Serial.printf("GET hub:\n\thum_max: %d\n\thum_min: %d\n\trelay_status: %d\n",
+					   hum_max_value, hum_min_value, relay_status);
 
 		digitalWrite(22, relay_status);
 		digitalWrite(LED_BUILTIN, relay_status);
@@ -220,7 +215,5 @@ void Network::GET_hub() {
 	}
 
 	https.end();
-
-	Serial.println();
 	Serial.println();
 }
