@@ -200,6 +200,7 @@ void setup()
 				  network.server_cfg.url,
 				  network.server_cfg.hub_id);
 
+	WiFi.mode(WIFI_STA);
 
 	BLEDevice::init("DewPoint");
 	Serial.println("Starting BLE work!");
@@ -685,7 +686,12 @@ void get_hub_handler(const std::string &message)
 
 void set_wifi_handler(const std::string &message)
 {
-	std::string str = message;
+	Serial.println(message.c_str());
+	size_t LF_pos = message.find('\n');
+	std::string str = message.substr(0, LF_pos);
+
+	Serial.println(str.c_str());
+
 	// Delete \r\n syms
 	str.erase(std::remove(str.begin(), str.end(), '\n'), str.cend());
 	str.erase(std::remove(str.begin(), str.end(), '\r'), str.cend());
@@ -816,7 +822,6 @@ void connect_to_wifi() {
 	Serial.printf("Try to connect to Wi-Fi with ssid: %s and password: %s\n", 
 					network.wifi_cfg.ssid, network.wifi_cfg.pass);
 	
-	WiFi.mode(WIFI_STA);
 	WiFi.begin(network.wifi_cfg.ssid, network.wifi_cfg.pass);
 
 	uint8_t wifi_connection_tries = 0;
@@ -826,7 +831,7 @@ void connect_to_wifi() {
 		Serial.printf(".");
 
 		if (wifi_connection_tries >= Network::MAX_WIFI_CONNECTION_TRIES) {
-			Serial.printf("ERROR: Couldn't connect to Wi-Fi network with ssid: %s and password: %s!\n"
+			Serial.printf("\nERROR: Couldn't connect to Wi-Fi network with ssid: %s and password: %s!\n"
 							"Please restart the device or set other Wi-Fi SSID and password!\n",
 							network.wifi_cfg.ssid, network.wifi_cfg.pass);
 			wifi_connection_tries = 0;
@@ -834,6 +839,8 @@ void connect_to_wifi() {
 			WiFi.disconnect();
 			break;
 		}
+
+		Serial.println();
 
 		++wifi_connection_tries;
 
@@ -912,7 +919,8 @@ void connect_to_BLE() {
 void check_COM_port() {
 	if (Serial.available() >= 1)
 	{
-		char sym[Serial.available()];
+		// char sym[Serial.available()];
+		char sym [256];
 		Serial.read(sym, Serial.available());
 
 		parse_message(std::string(sym));
