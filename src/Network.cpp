@@ -30,7 +30,7 @@ void Network::handle_disconnect() {
 	delete client;
 	client = nullptr;
 
-	WiFi.disconnect();
+	WiFi.disconnect(true, true);
 }
 
 bool Network::load_settings() {
