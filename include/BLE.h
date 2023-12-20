@@ -45,12 +45,14 @@ class MyClientCallback : public BLEClientCallbacks
 {
 	void onConnect(BLEClient *pclient)
 	{
-		BLE::connected = false;
+		BLE::connected = true;
+        BLE::do_BLE_connect = false;
 	}
 
 	void onDisconnect(BLEClient *pclient)
 	{
 		BLE::connected = false;
+        BLE::do_BLE_connect = true;
 		Serial.println("onDisconnect");
 	}
 };

@@ -75,9 +75,6 @@ void inflow_low_handler(const std::string &message);
 void inflow_high_handler(const std::string &message);
 void exhaust_low_handler(const std::string &message);
 void exhaust_high_handler(const std::string &message);
-void get_handler(const std::string &message);
-void post_handler(const std::string &message);
-void rand_handler(const std::string &message);
 void start_handler(const std::string &message);
 void stop_handler(const std::string &message);
 void period_handler(const std::string &message);
@@ -110,9 +107,6 @@ static const std::vector<Command> command_list = {
 	Command("inflow_high", inflow_high_handler),
 	Command("exhaust_low", exhaust_low_handler),
 	Command("exhaust_high", exhaust_high_handler),
-	Command("get", get_handler),
-	Command("post", post_handler),
-	Command("rand", rand_handler),
 	Command("start", start_handler),
 	Command("stop", stop_handler),
 	Command("period", period_handler),
@@ -130,6 +124,7 @@ Network network;
 
 hw_timer_t *status_timer;
 hw_timer_t *sensor_timer;
+hw_timer_t *BLE_timeout_timer;
 
 bool is_status_tim = false;
 bool is_sensor_tim = false;
@@ -141,6 +136,14 @@ void IRAM_ATTR onStatusTimer()
 
 void IRAM_ATTR onSensorTimer() {
 	is_sensor_tim = true;
+}
+
+void IRAM_ATTR onBLEtimeout() {
+	if (ble.pClient->isConnected()== false) {
+		ble.do_BLE_connect = true;
+	}
+
+	timerAlarmDisable(BLE_timeout_timer);
 }
 
 void setup()
@@ -206,16 +209,23 @@ void setup()
 	Serial.println("Starting BLE work!");
 
 	// 1s timer
+	// This timer initiates reply to check hub state on the server
 	status_timer = timerBegin(0, 8000 - 1, true);
 	timerAttachInterrupt(status_timer, &onStatusTimer, true);
-	// timerAlarmWrite(status_timer, 10000 - 1, true);
 	timerAlarmWrite(status_timer, 100000 - 1, true);
 	
 	// Set timer to 30 secs
+	// This timer initiates BLE transmission
 	sensor_timer = timerBegin(1, 8000 - 1, true);
 	timerAttachInterrupt(sensor_timer, &onSensorTimer, true);
-	// timerAlarmWrite(sensor_timer, 50000 - 1, true);
 	timerAlarmWrite(sensor_timer, 300000 - 1, true);
+
+	// Set timer to 10 secs
+	// This timer starts after we send a data to BLE and wait for response
+	// If no response that check BLE connection and reconnect
+	BLE_timeout_timer = timerBegin(2, 8000 - 1, true);
+	timerAttachInterrupt(BLE_timeout_timer, &onBLEtimeout, true);
+	timerAlarmWrite(BLE_timeout_timer, 100000 - 1, true);
 
 	pinMode(22, OUTPUT);
 	pinMode(LED_BUILTIN, OUTPUT);
@@ -397,11 +407,11 @@ void relay_handler(const std::string &message)
 	Serial.print(ble.BLE_reply.c_str());
 }
 
-/** TODO: Remake a algorythm - sensor sends a headher of the message,
+/** TODO: Remake a algorithm - sensor sends a header of the message,
  * humidity and temperature handlers will be united to one*/
 void humidity_handler(const std::string &message)
 {
-	/** TODO: Now algorythm support only two-digit numbers, fix it */
+	/** TODO: Now algorithm support only two-digit numbers, fix it */
 	// std::string&& tmp_str = message.substr(strlen("Humidity: "), 2);
 	std::string &&tmp_str = message.substr(strlen("Humidity: "), 2);
 	if (is_number(tmp_str))
@@ -420,7 +430,7 @@ void humidity_handler(const std::string &message)
 
 void temperature_handler(const std::string &message)
 {
-	/** TODO: Now algorythm support only two-digit numbers, fix it */
+	/** TODO: Now algorithm support only two-digit numbers, fix it */
 	std::string &&tmp_str = message.substr(strlen("Temperature: "), 2);
 	if (is_number(tmp_str))
 	{
@@ -578,78 +588,6 @@ void exhaust_high_handler(const std::string &message)
 		ble.BLE_reply = "ERROR: Invalid argument!\n";
 		debug(ble.BLE_reply);
 	}
-}
-
-void get_handler(const std::string &message)
-{
-	// Serial.print("ECHO: ");
-	// Serial.println(message.c_str());
-
-	// std::string args;
-	// uint8_t header_size = strlen("get ");
-	// if (header_size < message.size()) {
-	// 	args = message.substr(header_size, message.size() - header_size);
-	// }
-
-	// String endpoint;
-
-	// // Check the current connection status
-	// if ((WiFi.status() == WL_CONNECTED))
-	// {
-	// 	HTTPClient http;
-
-	// 	// http.begin(url);
-	// 	http.begin("http://62.84.117.245:8000/hub/hub?establishment_id=1");
-	// 	int httpCode = http.GET(); // Делаем запрос
-
-	// 	if (httpCode > 0)
-	// 	{
-	// 		String payload = http.getString();
-	// 		Serial.println(httpCode);
-	// 		Serial.println(payload);
-	// 	}
-	// 	else
-	// 	{
-	// 		Serial.println("HTTP-request error");
-	// 	}
-
-	// 	http.end();
-	// }
-}
-
-void post_handler(const std::string &message)
-{
-	// Serial.print("ECHO: ");
-	// Serial.println(message.c_str());
-
-	// std::string args;
-	// uint8_t header_size = strlen("post ");
-	// if (header_size < message.size())
-	// {
-	// 	args = message.substr(header_size, message.size() - header_size);
-	// }
-
-	// if (args == "log")
-	// {
-	// 	POST_log();
-	// }
-	// else if (args == "temp")
-	// {
-	// 	POST_temp();
-	// }
-	// else if (args == "hum")
-	// {
-	// 	POST_hum();
-	// }
-	// else
-	// {
-	// 	Serial.println("Unkwonw argument!");
-	// }
-}
-
-void rand_handler(const std::string &message)
-{
-	Serial.println(random(1, 5));
 }
 
 void start_handler(const std::string &message)
@@ -818,8 +756,11 @@ void status_tim_function() {
 }
 
 void sensor_tim_function() {
+	Serial.println("On BLE send hanler");
 	ble.p_serial_characteristic->writeValue("d");
 	is_sensor_tim = false;
+
+	timerAlarmEnable(BLE_timeout_timer);
 }
 
 void connect_to_wifi() {
@@ -874,6 +815,8 @@ void sensor_data_send_to_remote_server() {
 	 * 	Можно генерировать логи, что не было связи с сервером в какое-то время.
 	 * 	Нужно настроить время на борту, чтобы привязывать логи к "бортовому" времени.
 	*/
+
+	timerAlarmDisable(BLE_timeout_timer);
 
 	uint8_t step_value = (hum_max - hum_min) * 0.2;
 
