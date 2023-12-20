@@ -4,7 +4,7 @@
 
 class RelayController {
 public:
-	static constexpr uint8_t COMPRESSOR_RELAY = 16;
+	static constexpr uint8_t COMPRESSOR_RELAY = LED_BUILTIN;
 	static constexpr uint8_t INFLOW_RELAY_LOW = 5;
 	static constexpr uint8_t INFLOW_RELAY_HIGH = 19;
 	static constexpr uint8_t EXHAUST_RELAY_LOW = 12;

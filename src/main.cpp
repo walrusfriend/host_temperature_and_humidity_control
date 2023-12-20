@@ -88,7 +88,7 @@ void data_request_handler(const std::string &message);
 void set_hub_id_handler(const std::string& message);
 void set_sensor_id_handler(const std::string& message);
 void set_url_handler(const std::string& message);
-void set_establishmet_id_handler(const std::string& message);
+void set_establishment_id_handler(const std::string& message);
 
 void parse_message(const std::string &message);
 
@@ -123,7 +123,7 @@ static const std::vector<Command> command_list = {
 	Command("set_hub_id", set_hub_id_handler),
 	Command("set_sensor_id", set_sensor_id_handler),
 	Command("set_url", set_url_handler),
-	Command("set_establisment_id", set_establishmet_id_handler)
+	Command("set_establisment_id", set_establishment_id_handler)
 };
 
 Network network;
@@ -211,7 +211,7 @@ void setup()
 	// timerAlarmWrite(status_timer, 10000 - 1, true);
 	timerAlarmWrite(status_timer, 100000 - 1, true);
 	
-	// Set timer to 5 mins
+	// Set timer to 30 secs
 	sensor_timer = timerBegin(1, 8000 - 1, true);
 	timerAttachInterrupt(sensor_timer, &onSensorTimer, true);
 	// timerAlarmWrite(sensor_timer, 50000 - 1, true);
@@ -245,12 +245,10 @@ void compare_hum()
 {
 	if (is_compressor_start)
 	{
-		// pinMode(RELAY_PIN, OUTPUT); digitalWrite(RELAY_PIN, LOW);
 		RelayController::on(RelayController::COMPRESSOR_RELAY);
 	}
 	else
 	{
-		// pinMode(RELAY_PIN, INPUT);
 		RelayController::off(RelayController::COMPRESSOR_RELAY);
 	}
 
@@ -261,18 +259,24 @@ void compare_hum()
 
 	if (ble.curr_hum_value > 80)
 	{
-		// Serial.println("ALARM!!!");
-		// p_to_phone_characteristic->setValue("ALARM!!!");
+		/** TODO: Activate a heater */
+		Serial.println("INFO: A Heater is activated");
 	}
 
 	if (ble.curr_hum_value < hum_min)
 	{
+		Serial.println("INFO: A relay is on");
 		is_compressor_start = true;
+		RelayController::on(RelayController::COMPRESSOR_RELAY);
+		digitalWrite(LED_BUILTIN, HIGH);
 	}
 
 	if (ble.curr_hum_value > hum_max)
 	{
+		Serial.println("INFO: A relay is off");
 		is_compressor_start = false;
+		RelayController::off(RelayController::COMPRESSOR_RELAY);
+		digitalWrite(LED_BUILTIN, LOW);
 	}
 }
 
@@ -762,7 +766,7 @@ void set_url_handler(const std::string& message) {
 
 }
 
-void set_establishmet_id_handler(const std::string& message) {
+void set_establishment_id_handler(const std::string& message) {
 
 }
 
@@ -804,6 +808,7 @@ void status_tim_function() {
 	{
 		Serial.println("On status handler");
 		network.GET_hub();
+		Serial.println();
 	}
 	else
 	{
@@ -828,19 +833,16 @@ void connect_to_wifi() {
 	bool is_connection_successful = true;
 	while (WiFi.status() != WL_CONNECTED)
 	{
-		Serial.printf(".");
-
 		if (wifi_connection_tries >= Network::MAX_WIFI_CONNECTION_TRIES) {
 			Serial.printf("\nERROR: Couldn't connect to Wi-Fi network with ssid: %s and password: %s!\n"
 							"Please restart the device or set other Wi-Fi SSID and password!\n",
 							network.wifi_cfg.ssid, network.wifi_cfg.pass);
 			wifi_connection_tries = 0;
 			is_connection_successful = false;
-			WiFi.disconnect();
+			network.handle_disconnect();
+
 			break;
 		}
-
-		Serial.println();
 
 		++wifi_connection_tries;
 
@@ -848,14 +850,6 @@ void connect_to_wifi() {
 	};
 
 	if (is_connection_successful) {
-		// Check that old client object has been deleted
-		if (network.client != nullptr) {
-			Serial.println("INFO: Previous client object has not been deleted!");
-			delete network.client;
-		}
-
-		network.client = new WiFiClientSecure;
-
 		if (network.client)
 			network.client->setInsecure();
 		else
@@ -872,7 +866,7 @@ void connect_to_wifi() {
 }
 
 void sensor_data_send_to_remote_server() {
-	Serial.println("On BLE data recived handler");
+	Serial.println("On BLE data received handler");
 	/** TODO: Нужно посылать значение, пока оно не будет принято.
 	 * 	Возможно, даже складывать значения в очередь, пока всё не будет отправлено.
 	 * 	Также со всеми запросами - нужно удостовериться, что запрос дошёл и, если нет,
@@ -880,13 +874,37 @@ void sensor_data_send_to_remote_server() {
 	 * 	Можно генерировать логи, что не было связи с сервером в какое-то время.
 	 * 	Нужно настроить время на борту, чтобы привязывать логи к "бортовому" времени.
 	*/
+
+	uint8_t step_value = (hum_max - hum_min) * 0.2;
+
+	if (step_value < HUMIDITY_SENSOR_ACCURACY)
+		step_value = HUMIDITY_SENSOR_ACCURACY;
+
+	if ((ble.curr_hum_value < hum_min + step_value) or
+		(ble.curr_hum_value > hum_max - step_value))
+	{
+		// Send requests every 5 secs
+		timerAlarmDisable(sensor_timer);
+		timerAlarmWrite(sensor_timer, 50000 - 1, true);
+		timerAlarmEnable(sensor_timer);
+	}
+	else
+	{
+		// Send requests every 30 secs
+		timerAlarmDisable(sensor_timer);
+		timerAlarmWrite(sensor_timer, 300000 - 1, true);
+		timerAlarmEnable(sensor_timer);
+	}
 	
+	compare_hum();
+
 	// Check the current connection status
 	if ((WiFi.status() == WL_CONNECTED))
 	{
 		network.POST_hum(ble.curr_hum_value);
 		delay(100);
 		network.POST_temp(ble.curr_temp_value);
+		Serial.println();
 	}
 	else {
 		network.handle_disconnect();
@@ -899,8 +917,6 @@ void connect_to_BLE() {
 	uint8_t number_of_unsuccessful_connections = 0;
 	while (ble.connectToServer() == false)
 	{
-		Serial.printf(".");
-
 		++number_of_unsuccessful_connections;
 
 		if (number_of_unsuccessful_connections > 10) {

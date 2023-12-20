@@ -6,7 +6,7 @@ extern hw_timer_t *status_timer;
 extern hw_timer_t *sensor_timer;
 
 Network::Network() {
-
+	// client = new WiFiClientSecure;
 }
 
 Network::~Network() {
@@ -27,8 +27,8 @@ void Network::handle_disconnect() {
 	timerAlarmDisable(sensor_timer);
 	do_wifi_connect = true;
 
-	delete client;
-	client = nullptr;
+	// delete client;
+	// client = nullptr;
 
 	WiFi.disconnect(true, true);
 }
@@ -79,7 +79,6 @@ void Network::POST_log(const std::string_view& log_string) {
 	}
 
 	https.end();
-	Serial.println();
 }
 
 void Network::POST_temp(const uint8_t& temperature_value) {
@@ -117,11 +116,10 @@ void Network::POST_temp(const uint8_t& temperature_value) {
 	}
 	else
 	{
-		Serial.println("HTTP-request error");
+		Serial.printf("HTTPS POST temperature ERROR: %d\n", httpCode);
 	}
 
 	https.end();
-	Serial.println();
 }
 
 void Network::POST_hum(const uint8_t& humidity_value) {
@@ -170,7 +168,6 @@ void Network::POST_hum(const uint8_t& humidity_value) {
 	}
 
 	https.end();
-	Serial.println();
 }
 
 void Network::GET_hub() {
@@ -215,5 +212,4 @@ void Network::GET_hub() {
 	}
 
 	https.end();
-	Serial.println();
 }

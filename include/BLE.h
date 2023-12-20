@@ -39,6 +39,8 @@ public:
         bool isNotify);
 };
 
+/** TODO: Add doBLEconnect flag */
+
 class MyClientCallback : public BLEClientCallbacks
 {
 	void onConnect(BLEClient *pclient)
