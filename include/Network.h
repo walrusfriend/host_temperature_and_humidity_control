@@ -58,4 +58,8 @@ public:
     static const uint8_t establishment_id = 2;
 
     static const uint8_t MAX_WIFI_CONNECTION_TRIES = 20;
+
+    int16_t hum_max = 32000;
+    int16_t hum_min = -32000;
+    bool relay_status = 0;
 };

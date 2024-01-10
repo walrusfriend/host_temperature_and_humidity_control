@@ -8,6 +8,8 @@ uint8_t BLE::curr_hum_value = 0xff;
 uint8_t BLE::curr_temp_value = 0xff;
 uint8_t BLE::curr_battery_value = 100;
 
+static bool block_relay = true;
+
 BLE::BLE() {
 
 }

@@ -30,6 +30,8 @@ public:
     static uint8_t curr_temp_value;
     static uint8_t curr_battery_value;
 
+    static bool block_relay;
+
     bool connectToServer();
     
     static void notifyCallback(
@@ -47,12 +49,14 @@ class MyClientCallback : public BLEClientCallbacks
 	{
 		BLE::connected = true;
         BLE::do_BLE_connect = false;
+        BLE::block_relay = false;
 	}
 
 	void onDisconnect(BLEClient *pclient)
 	{
 		BLE::connected = false;
         BLE::do_BLE_connect = true;
+        BLE::block_relay = true;
 		Serial.println("onDisconnect");
 	}
 };

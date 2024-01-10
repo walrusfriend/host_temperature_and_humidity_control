@@ -20,12 +20,11 @@
  * - Refactor code:
  * 	 - move code parts to *.h/*.cpp files
  * 	 -
+ * - Проверить, что нигде, кроме ф-ции compare_hum() не происходит управление реле
+ * - Доделать сохранение и загрузку параметров сервера
  */
 
 BLE ble;
-
-uint8_t hum_min = 53;
-uint8_t hum_max = 80;
 
 const uint8_t HUMIDITY_SENSOR_ACCURACY = 2;
 
@@ -82,10 +81,10 @@ void get_hub_handler(const std::string &message);
 void set_wifi_handler(const std::string &message);
 void wifi_connect_handler(const std::string &message);
 void data_request_handler(const std::string &message);
-void set_hub_id_handler(const std::string& message);
-void set_sensor_id_handler(const std::string& message);
-void set_url_handler(const std::string& message);
-void set_establishment_id_handler(const std::string& message);
+void set_hub_id_handler(const std::string &message);
+void set_sensor_id_handler(const std::string &message);
+void set_url_handler(const std::string &message);
+void set_establishment_id_handler(const std::string &message);
 
 void parse_message(const std::string &message);
 
@@ -117,8 +116,7 @@ static const std::vector<Command> command_list = {
 	Command("set_hub_id", set_hub_id_handler),
 	Command("set_sensor_id", set_sensor_id_handler),
 	Command("set_url", set_url_handler),
-	Command("set_establisment_id", set_establishment_id_handler)
-};
+	Command("set_establisment_id", set_establishment_id_handler)};
 
 Network network;
 
@@ -134,12 +132,15 @@ void IRAM_ATTR onStatusTimer()
 	is_status_tim = true;
 }
 
-void IRAM_ATTR onSensorTimer() {
+void IRAM_ATTR onSensorTimer()
+{
 	is_sensor_tim = true;
 }
 
-void IRAM_ATTR onBLEtimeout() {
-	if (ble.pClient->isConnected()== false) {
+void IRAM_ATTR onBLEtimeout()
+{
+	if (ble.pClient->isConnected() == false)
+	{
 		ble.do_BLE_connect = true;
 	}
 
@@ -158,7 +159,8 @@ void setup()
 	const uint8_t INIT_KEY = 123;
 
 	// Load a default data to memory if it's first start
-	if (EEPROM.read(INIT_ADDR) != INIT_KEY) {
+	if (EEPROM.read(INIT_ADDR) != INIT_KEY)
+	{
 		EEPROM.write(INIT_ADDR, INIT_KEY);
 
 		uint16_t address_to_write = 1;
@@ -213,7 +215,7 @@ void setup()
 	status_timer = timerBegin(0, 8000 - 1, true);
 	timerAttachInterrupt(status_timer, &onStatusTimer, true);
 	timerAlarmWrite(status_timer, 100000 - 1, true);
-	
+
 	// Set timer to 30 secs
 	// This timer initiates BLE transmission
 	sensor_timer = timerBegin(1, 8000 - 1, true);
@@ -234,7 +236,10 @@ void setup()
 void loop()
 {
 	if (ble.do_BLE_connect == true)
+	{
+		is_compressor_start = false;
 		connect_to_BLE();
+	}
 
 	if (network.do_wifi_connect)
 		connect_to_wifi();
@@ -253,6 +258,16 @@ void loop()
 
 void compare_hum()
 {
+	// Forces compressor relay close
+	if (network.relay_status == false) {
+		RelayController::off(RelayController::COMPRESSOR_RELAY);
+		return;
+	}
+
+	if (BLE::block_relay == true) {
+		is_compressor_start = false;
+	}
+
 	if (is_compressor_start)
 	{
 		RelayController::on(RelayController::COMPRESSOR_RELAY);
@@ -262,31 +277,22 @@ void compare_hum()
 		RelayController::off(RelayController::COMPRESSOR_RELAY);
 	}
 
-	if (is_relay_controlled_by_user)
-	{
-		return;
-	}
-
-	if (ble.curr_hum_value > 80)
+	if (ble.curr_hum_value > network.hum_max)
 	{
 		/** TODO: Activate a heater */
-		Serial.println("INFO: A Heater is activated");
+		// Serial.println("INFO: A Heater is activated");
 	}
 
-	if (ble.curr_hum_value < hum_min)
+	if (ble.curr_hum_value < network.hum_min)
 	{
-		Serial.println("INFO: A relay is on");
+		// Serial.println("INFO: A relay is on");
 		is_compressor_start = true;
-		RelayController::on(RelayController::COMPRESSOR_RELAY);
-		digitalWrite(LED_BUILTIN, HIGH);
 	}
-
-	if (ble.curr_hum_value > hum_max)
+	
+	if (ble.curr_hum_value > network.hum_max)
 	{
-		Serial.println("INFO: A relay is off");
+		// Serial.println("INFO: A relay is off");
 		is_compressor_start = false;
-		RelayController::off(RelayController::COMPRESSOR_RELAY);
-		digitalWrite(LED_BUILTIN, LOW);
 	}
 }
 
@@ -298,7 +304,7 @@ void hum_handler(const std::string &message)
 	if (space_pos == std::string::npos or space_pos == 3 /* Exclude the first 'space' sym */)
 	{
 		ble.BLE_reply = "ERROR: Unknown command format!\n"
-					"Command must looks like 'hum xx xx' where xx - a positive number from 0 to 100!\n";
+						"Command must looks like 'hum xx xx' where xx - a positive number from 0 to 100!\n";
 		debug(ble.BLE_reply);
 		return;
 	}
@@ -314,8 +320,8 @@ void hum_handler(const std::string &message)
 		return;
 	}
 
-	uint16_t tmp_min_hum_value = 0;
-	uint16_t tmp_max_hum_value = 0;
+	int16_t tmp_min_hum_value = 0;
+	int16_t tmp_max_hum_value = 0;
 
 	if (is_number(tmp_hum_min_str))
 	{
@@ -352,11 +358,11 @@ void hum_handler(const std::string &message)
 		return;
 	}
 
-	hum_min = tmp_min_hum_value;
-	hum_max = tmp_max_hum_value;
+	network.hum_min = tmp_min_hum_value;
+	network.hum_max = tmp_max_hum_value;
 
-	ble.BLE_reply = "New humidity border values is " + std::to_string(hum_min) +
-				" and " + std::to_string(hum_max) + '\n';
+	ble.BLE_reply = "New humidity border values is " + std::to_string(network.hum_min) +
+					" and " + std::to_string(network.hum_max) + '\n';
 	Serial.print(ble.BLE_reply.c_str());
 }
 
@@ -643,17 +649,19 @@ void set_wifi_handler(const std::string &message)
 	size_t initialPos = 0;
 
 	// Decompose statement
-	while( pos != std::string::npos ) {
-	    args.push_back(str.substr(initialPos, pos - initialPos));
-	    initialPos = pos + 1;
+	while (pos != std::string::npos)
+	{
+		args.push_back(str.substr(initialPos, pos - initialPos));
+		initialPos = pos + 1;
 
-	    pos = str.find(' ', initialPos );
+		pos = str.find(' ', initialPos);
 	}
 
 	// Add the last one
 	args.push_back(str.substr(initialPos, str.size() - initialPos));
 
-	if (args.size() < 3) {
+	if (args.size() < 3)
+	{
 		Serial.println("ERROR: Too few argumets");
 		return;
 	}
@@ -685,27 +693,28 @@ void wifi_connect_handler(const std::string &message)
 	network.do_wifi_connect = true;
 }
 
-void data_request_handler(const std::string &message) {
+void data_request_handler(const std::string &message)
+{
 	/** TODO: Check if we connected to BLE server */
 
 	ble.p_serial_characteristic->writeValue("d");
 }
 
 /** TODO: Дописать тело функций */
-void set_hub_id_handler(const std::string& message) {
-
+void set_hub_id_handler(const std::string &message)
+{
 }
 
-void set_sensor_id_handler(const std::string& message) {
-
+void set_sensor_id_handler(const std::string &message)
+{
 }
 
-void set_url_handler(const std::string& message) {
-
+void set_url_handler(const std::string &message)
+{
 }
 
-void set_establishment_id_handler(const std::string& message) {
-
+void set_establishment_id_handler(const std::string &message)
+{
 }
 
 /** TODO: This will be work only if the message starts with a command*/
@@ -734,13 +743,14 @@ void debug(const std::string &debug_info) {}
 
 bool is_number(const std::string &s)
 {
-	return !s.empty() && 
-			std::find_if(s.begin(),
+	return !s.empty() &&
+		   std::find_if(s.begin(),
 						s.end(), [](unsigned char c)
 						{ return !std::isdigit(c); }) == s.end();
 }
 
-void status_tim_function() {
+void status_tim_function()
+{
 	// Check the current connection status
 	if ((WiFi.status() == WL_CONNECTED))
 	{
@@ -752,10 +762,15 @@ void status_tim_function() {
 	{
 		network.handle_disconnect();
 	}
+
+	// Check an atmosphere params and the user input and control the compressor relay
+	compare_hum();
+
 	is_status_tim = false;
 }
 
-void sensor_tim_function() {
+void sensor_tim_function()
+{
 	Serial.println("On BLE send hanler");
 	ble.p_serial_characteristic->writeValue("d");
 	is_sensor_tim = false;
@@ -763,21 +778,23 @@ void sensor_tim_function() {
 	timerAlarmEnable(BLE_timeout_timer);
 }
 
-void connect_to_wifi() {
+void connect_to_wifi()
+{
 	/** TODO: Reconnect does not working */
-	Serial.printf("Try to connect to Wi-Fi with ssid: %s and password: %s\n", 
-					network.wifi_cfg.ssid, network.wifi_cfg.pass);
-	
+	Serial.printf("Try to connect to Wi-Fi with ssid: %s and password: %s\n",
+				  network.wifi_cfg.ssid, network.wifi_cfg.pass);
+
 	WiFi.begin(network.wifi_cfg.ssid, network.wifi_cfg.pass);
 
 	uint8_t wifi_connection_tries = 0;
 	bool is_connection_successful = true;
 	while (WiFi.status() != WL_CONNECTED)
 	{
-		if (wifi_connection_tries >= Network::MAX_WIFI_CONNECTION_TRIES) {
+		if (wifi_connection_tries >= Network::MAX_WIFI_CONNECTION_TRIES)
+		{
 			Serial.printf("\nERROR: Couldn't connect to Wi-Fi network with ssid: %s and password: %s!\n"
-							"Please restart the device or set other Wi-Fi SSID and password!\n",
-							network.wifi_cfg.ssid, network.wifi_cfg.pass);
+						  "Please restart the device or set other Wi-Fi SSID and password!\n",
+						  network.wifi_cfg.ssid, network.wifi_cfg.pass);
 			wifi_connection_tries = 0;
 			is_connection_successful = false;
 			network.handle_disconnect();
@@ -790,7 +807,8 @@ void connect_to_wifi() {
 		delay(100);
 	};
 
-	if (is_connection_successful) {
+	if (is_connection_successful)
+	{
 		if (network.client)
 			network.client->setInsecure();
 		else
@@ -806,7 +824,8 @@ void connect_to_wifi() {
 	}
 }
 
-void sensor_data_send_to_remote_server() {
+void sensor_data_send_to_remote_server()
+{
 	Serial.println("On BLE data received handler");
 	/** TODO: Нужно посылать значение, пока оно не будет принято.
 	 * 	Возможно, даже складывать значения в очередь, пока всё не будет отправлено.
@@ -814,17 +833,17 @@ void sensor_data_send_to_remote_server() {
 	 * 	то отправлять запрос до тех пор, пока не получится отправить.
 	 * 	Можно генерировать логи, что не было связи с сервером в какое-то время.
 	 * 	Нужно настроить время на борту, чтобы привязывать логи к "бортовому" времени.
-	*/
+	 */
 
 	timerAlarmDisable(BLE_timeout_timer);
 
-	uint8_t step_value = (hum_max - hum_min) * 0.2;
+	uint8_t step_value = (network.hum_max - network.hum_min) * 0.2;
 
 	if (step_value < HUMIDITY_SENSOR_ACCURACY)
 		step_value = HUMIDITY_SENSOR_ACCURACY;
 
-	if ((ble.curr_hum_value < hum_min + step_value) or
-		(ble.curr_hum_value > hum_max - step_value))
+	if ((ble.curr_hum_value < network.hum_min + step_value) or
+		(ble.curr_hum_value > network.hum_max - step_value))
 	{
 		// Send requests every 5 secs
 		timerAlarmDisable(sensor_timer);
@@ -838,7 +857,8 @@ void sensor_data_send_to_remote_server() {
 		timerAlarmWrite(sensor_timer, 300000 - 1, true);
 		timerAlarmEnable(sensor_timer);
 	}
-	
+
+	// Check an atmosphere params and the user input and control the compressor relay
 	compare_hum();
 
 	// Check the current connection status
@@ -849,20 +869,23 @@ void sensor_data_send_to_remote_server() {
 		network.POST_temp(ble.curr_temp_value);
 		Serial.println();
 	}
-	else {
+	else
+	{
 		network.handle_disconnect();
 	}
 	ble.is_data_from_BLE_received = false;
 }
 
-void connect_to_BLE() {
+void connect_to_BLE()
+{
 	Serial.println("Try to connect to BLE");
 	uint8_t number_of_unsuccessful_connections = 0;
 	while (ble.connectToServer() == false)
 	{
 		++number_of_unsuccessful_connections;
 
-		if (number_of_unsuccessful_connections > 10) {
+		if (number_of_unsuccessful_connections > 10)
+		{
 			Serial.println("ERROR: Failed to connect to the BLE server!");
 			break;
 		}
@@ -875,11 +898,12 @@ void connect_to_BLE() {
 	Serial.println("BLE connected!");
 }
 
-void check_COM_port() {
+void check_COM_port()
+{
 	if (Serial.available() >= 1)
 	{
 		// char sym[Serial.available()];
-		char sym [256];
+		char sym[256];
 		Serial.read(sym, Serial.available());
 
 		parse_message(std::string(sym));

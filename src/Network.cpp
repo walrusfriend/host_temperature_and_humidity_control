@@ -197,15 +197,22 @@ void Network::GET_hub() {
 			return;
 		}
 
-		uint8_t hum_max_value = reply["humidity_upper_limit"];
-		uint8_t hum_min_value = reply["humidity_lower_limit"];
-		bool relay_status = reply["compressor_relay_status"];
+		int16_t tmp_hum_max = reply["humidity_upper_limit"];
+		int16_t tmp_hum_min = reply["humidity_lower_limit"];
+		relay_status = reply["compressor_relay_status"];
+
+		// Checking for a fool
+		if (tmp_hum_max < tmp_hum_min) {
+			/** TODO: Send a log to a server */
+			Serial.println("ERROR: A max hum value must be higher than a min hum value!");
+			return;
+		}
+
+		hum_max = tmp_hum_max;
+		hum_min = tmp_hum_min;
 
 		Serial.printf("GET hub:\n\thum_max: %d\n\thum_min: %d\n\trelay_status: %d\n",
-					   hum_max_value, hum_min_value, relay_status);
-
-		digitalWrite(22, relay_status);
-		digitalWrite(LED_BUILTIN, relay_status);
+					   hum_max, hum_min, relay_status);
 	}
 	else {
 		Serial.printf("HTTPS GET hub ERROR: %d\n", httpCode);
