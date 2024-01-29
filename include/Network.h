@@ -1,65 +1,64 @@
-#pragma once
+// #pragma once
 
-#include <WiFi.h>
-#include <HTTPClient.h>
-#include <ArduinoJson.h>
-#include <WiFiClientSecure.h>
+// #include <WiFi.h>
+// #include <HTTPClient.h>
+// #include <ArduinoJson.h>
+// #include <WiFiClientSecure.h>
 
-struct WiFi_Config {
-    char ssid[16] = {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1};
-    char pass[16] = {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1};
-    byte mode;
-};
+// constexpr uint8_t WIFI_SSID_SIZE = 16;
+// constexpr uint8_t WIFI_PASS_SIZE = 16;
 
-struct RemoteServerConfig {
-    char url[32];
-    uint32_t hub_id;
-    uint32_t sensor_id;
-    uint32_t establishment_id;
-};
+// struct WiFi_Config {
+//     char ssid[WIFI_SSID_SIZE];
+//     char pass[WIFI_PASS_SIZE];
+//     byte mode = WIFI_MODE_STA;
+// };
 
-class Network {
-public:
-    Network();
-    ~Network();
+// struct RemoteServerConfig {
+//     char url[32] = {0};
+//     uint32_t hub_id = 0;
+//     uint32_t sensor_id = 0;
+//     uint32_t establishment_id = 0;
+// };
 
-    bool wifi_connect();
-    void handle_disconnect();
+// class Network {
+// public:
+//     Network();
+//     ~Network();
 
-    bool load_settings();
-    bool save_settings();
-    
-    // REST API functions
-    void POST_log(const std::string_view& log_string);
-    void POST_temp(const uint8_t& temperature_value);
-    void POST_hum(const uint8_t& humidity_value);
-    void GET_hub();
+//     void handle_disconnect();
 
-    WiFi_Config wifi_cfg;
-    RemoteServerConfig server_cfg;
+//     // REST API functions
+//     void POST_log(const std::string_view& log_string);
+//     void POST_temp(const uint8_t& temperature_value);
+//     void POST_hum(const uint8_t& humidity_value);
+//     void GET_hub();
 
-    bool do_wifi_connect = true;
+//     WiFi_Config wifi_cfg;
+//     RemoteServerConfig server_cfg;
 
-    bool is_wifi_settings_initialized = false;
-    bool is_wifi_connection_establish = false;
+//     bool do_wifi_connect = true;
 
-    HTTPClient https;
-    WiFiClientSecure *client;
+//     bool is_wifi_settings_initialized = false;
+//     bool is_wifi_connection_establish = false;
 
-    // Endpoints
-    String temp_endpoint = String("/hub/temperature");
-    String hum_endpoint = String("/hub/humidity");
-    String log_endpoint = String("/hub/log");
+//     HTTPClient https;
+//     WiFiClientSecure *client;
 
-    String hub_get_endpoint = String("/hub/hub?establishment_id=");
+//     // Endpoints
+//     String temp_endpoint = String("/hub/temperature");
+//     String hum_endpoint = String("/hub/humidity");
+//     String log_endpoint = String("/hub/log");
 
-    static const uint8_t hub_id = 3;
-    static const uint8_t sensor_id = 1;
-    static const uint8_t establishment_id = 2;
+//     String hub_get_endpoint = String("/hub/hub?establishment_id=");
 
-    static const uint8_t MAX_WIFI_CONNECTION_TRIES = 20;
+//     static const uint8_t hub_id = 3;
+//     static const uint8_t sensor_id = 1;
+//     static const uint8_t establishment_id = 2;
 
-    int16_t hum_max = 32000;
-    int16_t hum_min = -32000;
-    bool relay_status = 0;
-};
+//     static const uint8_t MAX_WIFI_CONNECTION_TRIES = 5;
+
+//     int16_t hum_max = 32000;
+//     int16_t hum_min = -32000;
+//     bool relay_status = 0;
+// };
