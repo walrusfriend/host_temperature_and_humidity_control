@@ -4,7 +4,7 @@
 #include <EEPROM.h>
 
 // #include "BLE.h"
-// #include "Network.h"
+#include "Network.h"
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
@@ -55,12 +55,6 @@ struct Command
 	std::string name;
 	std::function<void(const std::string &)> handler;
 
-	// Command(std::string &&command_name, const std::function<void(const std::string &)>& command_handler)
-	// {
-	// 	name = command_name;
-	// 	handler = command_handler;
-	// }
-
 	Command(std::string &&command_name, void(*command_handler)(const std::string &))
 		: name(command_name)
 		, handler(command_handler)
@@ -93,10 +87,6 @@ bool is_number(const std::string &s);
 // Парсер написан так, что не должно быть команды, которая является
 // началом другой команды, вроде get и get_hub. Команда get просто будет
 // вызываться раньше.
-// set_wifi Redmi10 123456789q
-
-// set_wifi AKADO-9E4C 90704507
-
 static const std::vector<Command> command_list = {
 	Command("relay", relay_handler),
 	Command("start", start_handler),
@@ -109,24 +99,24 @@ static const std::vector<Command> command_list = {
 	Command("set_url", set_url_handler),
 	Command("set_establisment_id", set_establishment_id_handler)};
 
-// Network network;
+Network network;
 
-// hw_timer_t *status_timer;
-// hw_timer_t *sensor_timer;
-// hw_timer_t *BLE_timeout_timer;
+hw_timer_t *status_timer;
+hw_timer_t *sensor_timer;
+hw_timer_t *BLE_timeout_timer;
 
-// bool is_status_tim = false;
-// bool is_sensor_tim = false;
+bool is_status_tim = false;
+bool is_sensor_tim = false;
 
-// void IRAM_ATTR onStatusTimer()
-// {
-// 	is_status_tim = true;
-// }
+void IRAM_ATTR onStatusTimer()
+{
+	is_status_tim = true;
+}
 
-// void IRAM_ATTR onSensorTimer()
-// {
-// 	is_sensor_tim = true;
-// }
+void IRAM_ATTR onSensorTimer()
+{
+	is_sensor_tim = true;
+}
 
 void IRAM_ATTR onBLEtimeout()
 {
@@ -135,7 +125,7 @@ void IRAM_ATTR onBLEtimeout()
 	// 	ble.do_BLE_connect = true;
 	// }
 
-	// timerAlarmDisable(BLE_timeout_timer);
+	timerAlarmDisable(BLE_timeout_timer);
 }
 
 void setup()
@@ -146,75 +136,71 @@ void setup()
 	Serial2.begin(115200);
 
 	// Try to load data from EEPROM
-	// EEPROM.begin(4096);
+	EEPROM.begin(4096);
 
-	// const uint16_t INIT_ADDR = 0;
-	// const uint8_t INIT_KEY = 123;
+	const uint16_t INIT_ADDR = 0;
+	const uint8_t INIT_KEY = 123;
 
 	// Load a default data to memory if it's first start
-	// if (EEPROM.read(INIT_ADDR) != INIT_KEY)
-	// {
-	// 	EEPROM.write(INIT_ADDR, INIT_KEY);
+	if (EEPROM.read(INIT_ADDR) != INIT_KEY)
+	{
+		EEPROM.write(INIT_ADDR, INIT_KEY);
 
-		// uint16_t address_to_write = 1;
+		uint16_t address_to_write = 1;
 
-		// // WiFi_Config wifi_cfg;
-		// strcpy(wifi_cfg.ssid, "blank_ssid");
-		// strcpy(wifi_cfg.pass, "blank_pass");
-		// wifi_cfg.mode = WIFI_MODE_STA;
+		WiFi_Config wifi_cfg;
+		strcpy(wifi_cfg.ssid, "blank_ssid");
+		strcpy(wifi_cfg.pass, "blank_pass");
+		wifi_cfg.mode = WIFI_MODE_STA;
 
-		// EEPROM.put(address_to_write, wifi_cfg);
+		EEPROM.put(address_to_write, wifi_cfg);
 
-		// address_to_write += sizeof(wifi_cfg);
-		// Serial.printf("DEBUG: Address to write: %d\n", address_to_write);
+		address_to_write += sizeof(wifi_cfg);
+		Serial.printf("DEBUG: Address to write: %d\n", address_to_write);
 
-		// RemoteServerConfig server_cfg;
-		// strcpy(server_cfg.url, "https://serverpd.ru");
-		// server_cfg.hub_id = 0;
-		// server_cfg.sensor_id = 0;
-		// server_cfg.establishment_id = 0;
+		RemoteServerConfig server_cfg;
+		strcpy(server_cfg.url, "https://serverpd.ru");
+		server_cfg.hub_id = 0;
+		server_cfg.sensor_id = 0;
+		server_cfg.establishment_id = 0;
 
-		// EEPROM.put(address_to_write, server_cfg);
-		// address_to_write += sizeof(server_cfg);
-		// Serial.printf("DEBUG: Address to write: %d\n", address_to_write);
+		EEPROM.put(address_to_write, server_cfg);
+		address_to_write += sizeof(server_cfg);
+		Serial.printf("DEBUG: Address to write: %d\n", address_to_write);
 
-		// EEPROM.commit();
-	// }
+		EEPROM.commit();
+	}
 
-	// uint16_t address_to_read = 1;
-	// EEPROM.get(address_to_read, network.wifi_cfg);
-	// address_to_read += sizeof(network.wifi_cfg);
+	uint16_t address_to_read = 1;
+	EEPROM.get(address_to_read, network.wifi_cfg);
+	address_to_read += sizeof(network.wifi_cfg);
 
-	// EEPROM.get(address_to_read, network.server_cfg);
-
-// TODO Delete
-	// strcpy(network.wifi_cfg.ssid, "AKADO-9E4C");
-	// strcpy(network.wifi_cfg.pass, "90704507");
+	EEPROM.get(address_to_read, network.server_cfg);
 
 	/** TODO: Create full load log */
-	// Serial.printf("DEBUG: Readed data from EEPROM:\n"
-	// 			  "ssid: %s\n"
-	// 			  "pass: %s\n"
-	// 			  "url: %s\n"
-	// 			  "hub id: %d\n",
-	// 			  network.wifi_cfg.ssid,
-	// 			  network.wifi_cfg.pass,
-	// 			  network.server_cfg.url,
-	// 			  network.server_cfg.hub_id);
+	Serial.printf("DEBUG: Readed data from EEPROM:\n"
+				  "ssid: %s\n"
+				  "pass: %s\n"
+				  "url: %s\n"
+				  "hub id: %d\n",
+				  network.wifi_cfg.ssid,
+				  network.wifi_cfg.pass,
+				  network.server_cfg.url,
+				  network.server_cfg.hub_id);
 
 	// BLEDevice::init("DewPoint");
 	// Serial.println("INFO: Starting BLE work!");
 	// 1s timer
 	// This timer initiates reply to check hub state on the server
-	// status_timer = timerBegin(0, 8000 - 1, true);
-	// timerAttachInterrupt(status_timer, &onStatusTimer, true);
-	// timerAlarmWrite(status_timer, 100000 - 1, true);
+	status_timer = timerBegin(0, 8000 - 1, true);
+	timerAttachInterrupt(status_timer, &onStatusTimer, true);
+	timerAlarmWrite(status_timer, 100000 - 1, true);
 
 	// Set timer to 30 secs
 	// This timer initiates BLE transmission
-	// sensor_timer = timerBegin(1, 8000 - 1, true);
-	// timerAttachInterrupt(sensor_timer, &onSensorTimer, true);
-	// timerAlarmWrite(sensor_timer, 300000 - 1, true);
+	sensor_timer = timerBegin(1, 8000 - 1, true);
+	timerAttachInterrupt(sensor_timer, &onSensorTimer, true);
+	timerAlarmWrite(sensor_timer, 300000 - 1, true);
 
 	// Set timer to 10 secs
 	// This timer starts after we send a data to BLE and wait for response
@@ -228,23 +214,14 @@ void setup()
 
 void loop()
 {
-	// if (ble.do_BLE_connect == true)
-	// {
-	// 	is_compressor_start = false;
-	// 	connect_to_BLE();
-	// }
-
-	// if (network.do_wifi_connect)
+	if (network.do_wifi_connect)
 		connect_to_wifi();
 
-	// if (is_status_tim)
-	// 	status_tim_function();
+	if (is_status_tim)
+		status_tim_function();
 
-	// if (is_sensor_tim)
-		// sensor_tim_function();
-
-	// if (ble.is_data_from_BLE_received)
-	// 	sensor_data_send_to_remote_server();
+	if (is_sensor_tim)
+		sensor_tim_function();
 
 	check_COM_port();
 }
@@ -326,12 +303,12 @@ void relay_handler(const std::string &message)
 
 void start_handler(const std::string &message)
 {
-	// timerAlarmEnable(status_timer);
+	timerAlarmEnable(status_timer);
 }
 
 void stop_handler(const std::string &message)
 {
-	// timerAlarmDisable(status_timer);
+	timerAlarmDisable(status_timer);
 }
 
 void set_wifi_handler(const std::string &message)
@@ -368,31 +345,31 @@ void set_wifi_handler(const std::string &message)
 		return;
 	}
 
-	// if (args[1].size() > WIFI_SSID_SIZE) {
-	// 	Serial.printf("ERROR: The SSID size must be less than %d\n", WIFI_SSID_SIZE);
-	// 	return;
-	// }
+	if (args[1].size() > WIFI_SSID_SIZE) {
+		Serial.printf("ERROR: The SSID size must be less than %d\n", WIFI_SSID_SIZE);
+		return;
+	}
 
-	// if (args[2].size() > WIFI_PASS_SIZE) {
-	// 	Serial.printf("ERROR: The password size must be less than %d\n", WIFI_PASS_SIZE);
-	// 	return;
-	// }
+	if (args[2].size() > WIFI_PASS_SIZE) {
+		Serial.printf("ERROR: The password size must be less than %d\n", WIFI_PASS_SIZE);
+		return;
+	}
 
-	// Serial.printf("INFO: Parsed SSID: %s and password: %s\n", args[1].c_str(), args[2].c_str());
+	Serial.printf("INFO: Parsed SSID: %s and password: %s\n", args[1].c_str(), args[2].c_str());
 
-	// strcpy(network.wifi_cfg.ssid, args[1].c_str());
-	// strcpy(network.wifi_cfg.pass, args[2].c_str());
+	strcpy(network.wifi_cfg.ssid, args[1].c_str());
+	strcpy(network.wifi_cfg.pass, args[2].c_str());
 
-	// EEPROM.put(1, network.wifi_cfg);
-	// EEPROM.commit();
+	EEPROM.put(1, network.wifi_cfg);
+	EEPROM.commit();
 
-	// WiFi.reconnect();
-	// network.do_wifi_connect = true;
+	WiFi.reconnect();
+	network.do_wifi_connect = true;
 }
 
 void wifi_connect_handler(const std::string &message)
 {
-	// network.do_wifi_connect = true;
+	network.do_wifi_connect = true;
 }
 
 void data_request_handler(const std::string &message)
@@ -483,8 +460,8 @@ void sensor_tim_function()
 void connect_to_wifi()
 {
 	/** TODO: Reconnect does not working */
-	// Serial.printf("INFO: Try to connect to Wi-Fi with ssid: %s and password: %s\n",
-	// 			  network.wifi_cfg.ssid, network.wifi_cfg.pass);
+	Serial.printf("INFO: Try to connect to Wi-Fi with ssid: %s and password: %s\n",
+				  network.wifi_cfg.ssid, network.wifi_cfg.pass);
 
 	if (WiFi.mode(WIFI_STA)) {
 		Serial.println("INFO: Mode changed successfully!");
@@ -493,56 +470,48 @@ void connect_to_wifi()
 		Serial.println("ERROR: Mode changing failed!");
 	}
 
-	// uint8_t status = WiFi.begin(network.wifi_cfg.ssid, network.wifi_cfg.pass);
-	uint8_t status = WiFi.begin("AKADO-9E4C", "90704507");
+	uint8_t status = WiFi.begin(network.wifi_cfg.ssid, network.wifi_cfg.pass);
 
 	Serial.printf("INFO: Initial status code - %d\n", status);
 
 	uint8_t wifi_connection_tries = 0;
 	bool is_connection_successful = true;
-	status = WiFi.status();
-	// while (WiFi.status() != WL_CONNECTED)
-	while (status != WL_CONNECTED)
+
+	while (WiFi.status() != WL_CONNECTED)
 	{
 		Serial.printf("INFO: Wi-Fi status code - %d\n", status);
 
-		// if (wifi_connection_tries >= Network::MAX_WIFI_CONNECTION_TRIES)
-		// {
-			// Serial.printf("\nERROR: Couldn't connect to Wi-Fi network with ssid: %s and password: %s!\n"
-			// 			  "Please restart the device or set other Wi-Fi SSID and password!\n",
-			// 			  network.wifi_cfg.ssid, network.wifi_cfg.pass);
+		if (wifi_connection_tries >= Network::MAX_WIFI_CONNECTION_TRIES)
+		{
+			Serial.printf("\nERROR: Couldn't connect to Wi-Fi network with ssid: %s and password: %s!\n"
+						  "Please restart the device or set other Wi-Fi SSID and password!\n",
+						  network.wifi_cfg.ssid, network.wifi_cfg.pass);
 			wifi_connection_tries = 0;
 			is_connection_successful = false;
-			// network.handle_disconnect();
-			// WiFi.disconnect()
+			network.handle_disconnect();
+			break;
+		}
 
-			// break;
-		// }
+		++wifi_connection_tries;
 
-		// ++wifi_connection_tries;
-
-		// Serial.printf(".");
-
-		delay(10000);
-
-		status = WiFi.begin("AKADO-9E4C", "90704507");
-		Serial.printf("INFO: Initial status code - %d\n", status);
+		Serial.printf(".");
+		delay(1000);
 	};
 
 	if (is_connection_successful)
 	{
-		// if (network.client)
-		// 	network.client->setInsecure();
-		// else
-		// 	Serial.printf("ERROR: [HTTPS] Unable to connect\n");
+		if (network.client)
+			network.client->setInsecure();
+		else
+			Serial.printf("ERROR: [HTTPS] Unable to connect\n");
 
-		// Serial.println("INFO: Wi-Fi connected");
-		// Serial.println();
+		Serial.println("INFO: Wi-Fi connected");
+		Serial.println();
 
-		// network.do_wifi_connect = false;
+		network.do_wifi_connect = false;
 
-		// timerAlarmEnable(status_timer);
-		// timerAlarmEnable(sensor_timer);
+		timerAlarmEnable(status_timer);
+		timerAlarmEnable(sensor_timer);
 	}
 }
 
