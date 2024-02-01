@@ -599,8 +599,4 @@ void check_COM_port()
 
 		parse_message(std::string(sym));
 	}
-
-	// TODO Delete
-	// Serial2.println("Serial2");	// D17 - TX, D16 - RX
-	// delay(100);
 }
