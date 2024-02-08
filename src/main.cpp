@@ -3,7 +3,7 @@
 
 #include <EEPROM.h>
 
-// #include "BLE.h"
+#include "BLE.h"
 #include "Network.h"
 #include <WiFi.h>
 #include <HTTPClient.h>
@@ -28,8 +28,6 @@
  * - Доделать сохранение и загрузку параметров сервера
  */
 
-// BLE ble;
-
 const uint8_t HUMIDITY_SENSOR_ACCURACY = 2;
 
 bool is_compressor_start = false;
@@ -49,6 +47,7 @@ void connect_to_wifi();
 void sensor_data_send_to_remote_server();
 void connect_to_BLE();
 void check_COM_port();
+void check_BLE_port();
 
 struct Command
 {
@@ -77,6 +76,7 @@ void set_hub_id_handler(const std::string &message);
 void set_sensor_id_handler(const std::string &message);
 void set_url_handler(const std::string &message);
 void set_establishment_id_handler(const std::string &message);
+void ble_handler(const std::string& message);
 
 void parse_message(const std::string &message);
 
@@ -97,9 +97,11 @@ static const std::vector<Command> command_list = {
 	Command("set_hub_id", set_hub_id_handler),
 	Command("set_sensor_id", set_sensor_id_handler),
 	Command("set_url", set_url_handler),
+	Command("ble", ble_handler),
 	Command("set_establisment_id", set_establishment_id_handler)};
 
 Network network;
+// BLE ble;
 
 hw_timer_t *status_timer;
 hw_timer_t *sensor_timer;
@@ -133,7 +135,8 @@ void setup()
 	Serial.begin(115200);
 	Serial.println("INFO: Start program!");
 
-	Serial2.begin(115200);
+	// UART port to BLE module
+	Serial2.begin(9600);
 
 	// Try to load data from EEPROM
 	EEPROM.begin(4096);
@@ -224,6 +227,8 @@ void loop()
 		sensor_tim_function();
 
 	check_COM_port();
+
+	check_BLE_port();
 }
 
 void compare_hum()
@@ -394,6 +399,10 @@ void set_url_handler(const std::string &message)
 
 void set_establishment_id_handler(const std::string &message)
 {
+}
+
+void ble_handler(const std::string& message) {
+	Serial2.print(message.c_str());
 }
 
 /** TODO: This will be work only if the message starts with a command*/
@@ -598,5 +607,16 @@ void check_COM_port()
 		Serial.read(sym, Serial.available());
 
 		parse_message(std::string(sym));
+	}
+}
+
+void check_BLE_port() {
+	if (Serial2.available() >= 1) {
+		char sym[256];
+		Serial2.read(sym, Serial2.available());
+
+		Serial.print(sym);
+
+		// parse_message(std::string(sym));
 	}
 }
