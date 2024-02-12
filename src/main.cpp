@@ -77,6 +77,9 @@ void set_sensor_id_handler(const std::string &message);
 void set_url_handler(const std::string &message);
 void set_establishment_id_handler(const std::string &message);
 void ble_handler(const std::string& message);
+void ble_off_handler(const std::string& message);
+void ble_on_handler(const std::string& message);
+void ble_wakeup(const std::string& message);
 
 void parse_message(const std::string &message);
 
@@ -97,11 +100,14 @@ static const std::vector<Command> command_list = {
 	Command("set_hub_id", set_hub_id_handler),
 	Command("set_sensor_id", set_sensor_id_handler),
 	Command("set_url", set_url_handler),
-	Command("ble", ble_handler),
-	Command("set_establisment_id", set_establishment_id_handler)};
+	Command("set_establisment_id", set_establishment_id_handler),
+	Command("off_ble", ble_off_handler),
+	Command("on_ble", ble_on_handler),
+	Command("wakeup_ble", ble_wakeup),
+	Command("ble", ble_handler)};
 
 Network network;
-// BLE ble;
+std::unique_ptr<BLE> ble;
 
 hw_timer_t *status_timer;
 hw_timer_t *sensor_timer;
@@ -136,7 +142,9 @@ void setup()
 	Serial.println("INFO: Start program!");
 
 	// UART port to BLE module
-	Serial2.begin(9600);
+	// Serial2.begin(9600);
+
+	ble = std::make_unique<BLE>();
 
 	// Try to load data from EEPROM
 	EEPROM.begin(4096);
@@ -402,7 +410,46 @@ void set_establishment_id_handler(const std::string &message)
 }
 
 void ble_handler(const std::string& message) {
-	Serial2.print(message.c_str());
+	Serial.println("DEBUG: BLE handler");
+
+	size_t LF_pos = message.find('\n');
+	std::string str = message.substr(0, LF_pos);
+
+	Serial.println(str.c_str());
+
+	// Delete \r\n syms
+	str.erase(std::remove(str.begin(), str.end(), '\n'), str.cend());
+	str.erase(std::remove(str.begin(), str.end(), '\r'), str.cend());
+
+	std::vector<std::string> args;
+	size_t pos = str.find(' ');
+	size_t initialPos = 0;
+
+	// Decompose statement
+	while (pos != std::string::npos)
+	{
+		args.push_back(str.substr(initialPos, pos - initialPos));
+		initialPos = pos + 1;
+
+		pos = str.find(' ', initialPos);
+	}
+
+	// Add the last one
+	args.push_back(str.substr(initialPos, str.size() - initialPos));
+
+	Serial2.print(args[1].c_str());
+}
+
+void ble_off_handler(const std::string& message) {
+	// ble->power(false);
+}
+
+void ble_on_handler(const std::string& message) {
+	ble->power(true);
+}
+
+void ble_wakeup(const std::string& message) {
+	ble->wake_up();
 }
 
 /** TODO: This will be work only if the message starts with a command*/
@@ -612,10 +659,14 @@ void check_COM_port()
 
 void check_BLE_port() {
 	if (Serial2.available() >= 1) {
-		char sym[256];
-		Serial2.read(sym, Serial2.available());
+		char buff[256];
 
-		Serial.print(sym);
+		uint16_t size = Serial2.available();
+		Serial2.read(buff, size);
+
+		buff[size] = '\0';
+
+		Serial.print(buff);
 
 		// parse_message(std::string(sym));
 	}
