@@ -58,6 +58,7 @@ public:
 
     static const uint8_t MAX_WIFI_CONNECTION_TRIES = 5;
 
+    /** TODO: Move this variables to the main file */
     int16_t hum_max = 32000;
     int16_t hum_min = -32000;
     bool relay_status = 0;
