@@ -3,12 +3,9 @@
 
 #include <EEPROM.h>
 
+#include "main.h"
 #include "BLE.h"
 #include "Network.h"
-#include <WiFi.h>
-#include <HTTPClient.h>
-#include <ArduinoJson.h>
-#include <WiFiClientSecure.h>
 #include "RelayController.h"
 
 #define DEBUG 1
@@ -46,7 +43,8 @@ void check_BLE_port();
 struct Command
 {
 	std::string name;
-	std::function<void(const std::string &)> handler;
+	// std::function<void(const std::string &)> handler;
+	void(*handler)(const std::string&);
 
 	Command(std::string &&command_name, void(*command_handler)(const std::string &))
 		: name(command_name)
@@ -96,7 +94,7 @@ static const std::vector<Command> command_list = {
 	Command("set_hub_id", set_hub_id_handler),
 	Command("set_sensor_id", set_sensor_id_handler),
 	Command("set_url", set_url_handler),
-	Command("set_establisment_id", set_establishment_id_handler),
+	Command("set_establishment_id", set_establishment_id_handler),
 	Command("off_ble", ble_off_handler),
 	Command("on_ble", ble_on_handler),
 	Command("wakeup_ble", ble_wakeup),
@@ -107,6 +105,9 @@ static const std::vector<Command> command_list = {
 
 Network network;
 std::unique_ptr<BLE> ble;
+
+SensorParameters actual_sensor_params;
+UserDefinedParameters user_defined_sensor_params;
 
 hw_timer_t *status_timer;
 hw_timer_t *sensor_timer;
@@ -508,6 +509,13 @@ void ble_data_handler(const std::string& message) {
 	int parsed_hum = str_parsed_hum.toInt();
 	Serial.print("DEBUG: Parsed int temp value from string temp: ");
 	Serial.println(parsed_hum);
+
+	actual_sensor_params.temp = parsed_temp;
+	actual_sensor_params.hum = parsed_hum;
+
+	compare_hum();
+
+	/** TODO: Send reply to sensor */
 }
 
 void ble_answer_handler(const std::string& message) {
@@ -550,20 +558,20 @@ bool is_number(const std::string &s)
 void status_tim_function()
 {
 	Serial.println("INFO: Current status check");
-	// // Check the current connection status
-	// if ((WiFi.status() == WL_CONNECTED))
-	// {
-	// 	Serial.println("INFO: On status handler");
-	// 	network.GET_hub();
-	// 	Serial.println();
-	// }
-	// else
-	// {
-	// 	network.handle_disconnect();
-	// }
+	// Check the current connection status
+	if ((WiFi.status() == WL_CONNECTED))
+	{
+		Serial.println("DEBUG: On status handler");
+		network.GET_hub(user_defined_sensor_params);
+		Serial.println();
+	}
+	else
+	{
+		network.handle_disconnect();
+	}
 
-	// // Check an atmosphere params and the user input and control the compressor relay
-	// compare_hum();
+	// Check an atmosphere params and the user input and control the compressor relay
+	compare_hum();
 
 	is_status_tim = false;
 }

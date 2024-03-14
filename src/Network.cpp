@@ -181,7 +181,7 @@ void Network::POST_hum(const uint8_t& humidity_value) {
 	https.end();
 }
 
-void Network::GET_hub() {
+void Network::GET_hub(UserDefinedParameters& user_defined_params) {
 	StaticJsonDocument<1024> reply;
 
 	bool status = https.begin(server_cfg.url + hub_get_endpoint + String(establishment_id));
@@ -208,9 +208,9 @@ void Network::GET_hub() {
 			return;
 		}
 
-		int16_t tmp_hum_max = reply["humidity_upper_limit"];
-		int16_t tmp_hum_min = reply["humidity_lower_limit"];
-		relay_status = reply["compressor_relay_status"];
+		int tmp_hum_max = reply["humidity_upper_limit"];
+		int tmp_hum_min = reply["humidity_lower_limit"];
+		user_defined_params.relay_status = reply["compressor_relay_status"];
 
 		// Checking for a fool
 		if (tmp_hum_max < tmp_hum_min) {
@@ -219,11 +219,13 @@ void Network::GET_hub() {
 			return;
 		}
 
-		hum_max = tmp_hum_max;
-		hum_min = tmp_hum_min;
+		user_defined_params.hum_max = tmp_hum_max;
+		user_defined_params.hum_min = tmp_hum_min;
 
 		Serial.printf("INFO: GET hub:\n\thum_max: %d\n\thum_min: %d\n\trelay_status: %d\n",
-					   hum_max, hum_min, relay_status);
+					   user_defined_params.hum_max, 
+					   user_defined_params.hum_min, 
+					   user_defined_params.relay_status);
 	}
 	else {
 		Serial.printf("ERROR: HTTPS GET hub ERROR: %d\n", httpCode);

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "main.h"
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
@@ -32,7 +33,7 @@ public:
     void POST_log(const std::string_view& log_string);
     void POST_temp(const uint8_t& temperature_value);
     void POST_hum(const uint8_t& humidity_value);
-    void GET_hub();
+    void GET_hub(UserDefinedParameters& params);
 
     WiFi_Config wifi_cfg;
     RemoteServerConfig server_cfg;
@@ -57,9 +58,4 @@ public:
     static const uint8_t establishment_id = 2;
 
     static const uint8_t MAX_WIFI_CONNECTION_TRIES = 5;
-
-    /** TODO: Move this variables to the main file */
-    int16_t hum_max = 32000;
-    int16_t hum_min = -32000;
-    bool relay_status = 0;
 };
