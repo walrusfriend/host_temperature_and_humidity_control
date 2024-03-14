@@ -33,12 +33,6 @@ const uint8_t HUMIDITY_SENSOR_ACCURACY = 2;
 bool is_compressor_start = false;
 bool is_relay_controlled_by_user = false;
 
-/** TODO: Move this to RelayController */
-bool inflow_low_state = false;
-bool inflow_high_state = false;
-bool exhaust_low_state = false;
-bool exhaust_high_state = false;
-
 void compare_hum();
 
 void status_tim_function();
@@ -128,6 +122,7 @@ void IRAM_ATTR onSensorTimer()
 
 void IRAM_ATTR onBLEtimeout()
 {
+	/** TODO: Handle BLE timeout */
 	// if (ble.pClient->isConnected() == false)
 	// {
 	// 	ble.do_BLE_connect = true;
@@ -189,7 +184,7 @@ void setup()
 	EEPROM.get(address_to_read, network.server_cfg);
 
 	/** TODO: Create full load log */
-	Serial.printf("DEBUG: Readed data from EEPROM:\n"
+	Serial.printf("DEBUG: Read data from EEPROM:\n"
 				  "ssid: %s\n"
 				  "pass: %s\n"
 				  "url: %s\n"
@@ -486,6 +481,7 @@ bool is_number(const std::string &s)
 
 void status_tim_function()
 {
+	Serial.println("INFO: Current status check");
 	// // Check the current connection status
 	// if ((WiFi.status() == WL_CONNECTED))
 	// {
@@ -501,14 +497,15 @@ void status_tim_function()
 	// // Check an atmosphere params and the user input and control the compressor relay
 	// compare_hum();
 
-	// is_status_tim = false;
+	is_status_tim = false;
 }
 
 void sensor_tim_function()
 {
+	Serial.println("INFO: BLE check");
 	// Serial.println("INFO: On BLE send hanler");
 	// // ble.p_serial_characteristic->writeValue("d");
-	// is_sensor_tim = false;
+	is_sensor_tim = false;
 
 	// timerAlarmEnable(BLE_timeout_timer);
 }
