@@ -452,8 +452,9 @@ void ble_wakeup(const std::string& message) {
 }
 
 void ble_data_handler(const std::string& message) {
-	Serial.println("DEBUG: In BLE data handler function");
+	/** TODO: Reset BLE timeout timer */
 
+	Serial.println("DEBUG: In BLE data handler function");
 	
 	// Extract temp value
 	auto start_temp_pos = message.find('t');
@@ -511,9 +512,40 @@ void ble_data_handler(const std::string& message) {
 	actual_sensor_params.temp = parsed_temp;
 	actual_sensor_params.hum = parsed_hum;
 
+	/** TODO: Send reply to sensor */
+	uint8_t step_value = (user_defined_sensor_params.hum_max - 
+						  user_defined_sensor_params.hum_min) * 0.2;
+
+	if (step_value < HUMIDITY_SENSOR_ACCURACY)
+		step_value = HUMIDITY_SENSOR_ACCURACY;
+
+	if ((actual_sensor_params.hum < user_defined_sensor_params.hum_min + step_value) or
+		(actual_sensor_params.hum > user_defined_sensor_params.hum_max - step_value))
+	{
+		// Send requests every 5 
+		Serial2.print("S:1\n");
+	}
+	else
+	{
+		// Send requests every 30 secs
+		Serial2.print("S:2\n");
+	}
+
 	compare_hum();
 
-	/** TODO: Send reply to sensor */
+	// Check the current connection status
+	if ((WiFi.status() == WL_CONNECTED))
+	{
+		network.POST_hum(actual_sensor_params.hum);
+		delay(100);
+		network.POST_temp(actual_sensor_params.temp);
+		Serial.println();
+	}
+	else
+	{
+		/** TODO: Save a log to send later */
+		network.handle_disconnect();
+	}
 }
 
 void ble_answer_handler(const std::string& message) {
@@ -664,19 +696,19 @@ void sensor_data_send_to_remote_server()
 	// 	(ble.curr_hum_value > network.hum_max - step_value))
 	// {
 	// 	// Send requests every 5 secs
-	// 	timerAlarmDisable(sensor_timer);
-	// 	timerAlarmWrite(sensor_timer, 50000 - 1, true);
-	// 	timerAlarmEnable(sensor_timer);
+	// 	// timerAlarmDisable(sensor_timer);
+	// 	// timerAlarmWrite(sensor_timer, 50000 - 1, true);
+	// 	// timerAlarmEnable(sensor_timer);
 	// }
 	// else
 	// {
 	// 	// Send requests every 30 secs
-	// 	timerAlarmDisable(sensor_timer);
-	// 	timerAlarmWrite(sensor_timer, 300000 - 1, true);
-	// 	timerAlarmEnable(sensor_timer);
+	// 	// timerAlarmDisable(sensor_timer);
+	// 	// timerAlarmWrite(sensor_timer, 300000 - 1, true);
+	// 	// timerAlarmEnable(sensor_timer);
 	// }
 
-	// // Check an atmosphere params and the user input and control the compressor relay
+	// Check an atmosphere params and the user input and control the compressor relay
 	// compare_hum();
 
 	// // Check the current connection status
