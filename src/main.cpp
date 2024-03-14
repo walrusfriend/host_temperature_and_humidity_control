@@ -74,6 +74,8 @@ void ble_handler(const std::string& message);
 void ble_off_handler(const std::string& message);
 void ble_on_handler(const std::string& message);
 void ble_wakeup(const std::string& message);
+void ble_data_handler(const std::string& message);
+void ble_answer_handler(const std::string& message);
 
 void parse_message(const std::string &message);
 
@@ -98,7 +100,10 @@ static const std::vector<Command> command_list = {
 	Command("off_ble", ble_off_handler),
 	Command("on_ble", ble_on_handler),
 	Command("wakeup_ble", ble_wakeup),
-	Command("ble", ble_handler)};
+	Command("ble", ble_handler),
+	Command("d:", ble_data_handler),
+	Command("OK", ble_answer_handler)
+};
 
 Network network;
 std::unique_ptr<BLE> ble;
@@ -447,6 +452,69 @@ void ble_wakeup(const std::string& message) {
 	ble->wake_up();
 }
 
+void ble_data_handler(const std::string& message) {
+	Serial.println("DEBUG: In BLE data handler function");
+
+	
+	// Extract temp value
+	auto start_temp_pos = message.find('t');
+	auto end_temp_pos = message.find('h');
+
+	/** TODO: Generate a log message and send it to server if couldn't parse BLE message */
+
+	if (start_temp_pos == std::string::npos)  {
+		Serial.println("ERROR: Couldn't find the start position of the temperature value in BLE message!");
+		return;
+	}
+
+	if (end_temp_pos == std::string::npos) {
+		Serial.println("ERROR: Couldn't find the start position of the temperature value in BLE message!");
+		return;
+	}
+
+	String str_parsed_temp = message.substr(start_temp_pos + 1, end_temp_pos - start_temp_pos - 1).c_str();
+
+	if (str_parsed_temp.length() == 0) {
+		Serial.println("ERROR: Temp string size is 0!");
+		return;
+	}
+
+	Serial.print("DEBUG: Parsed string temp from original message: ");
+	Serial.println(str_parsed_temp);
+
+	int parsed_temp = str_parsed_temp.toInt();
+	Serial.print("DEBUG: Parsed int temp value from string temp: ");
+	Serial.println(parsed_temp);
+
+	// Extract hum value
+	auto start_hum_pos = end_temp_pos;
+	auto end_hum_pos = message.size();
+
+	if (start_hum_pos == std::string::npos)  {
+		Serial.println("ERROR: Couldn't find the start position of the humidity value in BLE message!");
+		return;
+	}
+
+	String str_parsed_hum = message.substr(start_hum_pos + 1, end_hum_pos - start_hum_pos - 1).c_str();
+
+	if (str_parsed_hum.length() == 0) {
+		Serial.println("ERROR: Hum string size is 0!");
+		return;
+	}
+
+	Serial.print("DEBUG: Parsed string temp from original message: ");
+	Serial.println(str_parsed_hum);
+
+	int parsed_hum = str_parsed_hum.toInt();
+	Serial.print("DEBUG: Parsed int temp value from string temp: ");
+	Serial.println(parsed_hum);
+}
+
+void ble_answer_handler(const std::string& message) {
+	Serial.println("DEBUG: BLE message arrived:");
+	Serial.print(message.c_str());
+}
+
 /** TODO: This will be work only if the message starts with a command*/
 void parse_message(const std::string &message)
 {
@@ -663,8 +731,10 @@ void check_BLE_port() {
 
 		buff[size] = '\0';
 
+		/** TODO: Delete this debug print */
+		Serial.println("DEBUG: Data from BLE:");
 		Serial.print(buff);
 
-		// parse_message(std::string(sym));
+		parse_message(std::string(buff));
 	}
 }
