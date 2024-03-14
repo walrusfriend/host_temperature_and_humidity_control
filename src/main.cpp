@@ -242,46 +242,44 @@ void loop()
 
 void compare_hum()
 {
-	// // Forces compressor relay close
-	// if (network.relay_status == false) {
-	// 	Serial.println("INFO: Force change relay status to off");
-	// 	RelayController::off(RelayController::COMPRESSOR_RELAY);
-	// 	return;
-	// }
-
+	/** TODO: If BLE timeout detected then close relay */
 	// if (BLE::block_relay == true) {
-	// 	Serial.println("INFO: Relay off because BLE connection lost");
-	// 	is_compressor_start = false;
+		// Serial.println("INFO: Relay off because BLE connection lost");
+		// is_compressor_start = false;
 	// }
 
-	// if (ble.curr_hum_value > network.hum_max)
-	// {
-	// 	/** TODO: Activate a heater */
-	// 	Serial.println("INFO: A Heater is activated");
-	// }
-
-	// if (ble.curr_hum_value < network.hum_min)
-	// {
-	// 	Serial.println("INFO: A relay is on");
-	// 	is_compressor_start = true;
-	// }
+	if (actual_sensor_params.hum < user_defined_sensor_params.hum_min)
+	{
+		Serial.println("INFO: A relay is on");
+		is_compressor_start = true;
+	}
 	
-	// if (ble.curr_hum_value > network.hum_max)
-	// {
-	// 	Serial.println("INFO: A relay is off");
-	// 	is_compressor_start = false;
-	// }
+	if (actual_sensor_params.hum > user_defined_sensor_params.hum_max)
+	{
+		Serial.println("INFO: A relay is off");
+		is_compressor_start = false;
 
-	// if (is_compressor_start)
-	// {
-	// 	Serial.println("INFO: Relay status changed to ON");
-	// 	RelayController::on(RelayController::COMPRESSOR_RELAY);
-	// }
-	// else
-	// {
-	// 	Serial.println("INFO: Relay status changed to OFF");
-	// 	RelayController::off(RelayController::COMPRESSOR_RELAY);
-	// }
+		/** TODO: Activate a heater */
+		Serial.println("INFO: A Heater is activated");
+	}
+
+	// Forces compressor relay close (off the compressor)
+	if (user_defined_sensor_params.relay_status == false) {
+		Serial.println("INFO: Force change relay status to off");
+		is_compressor_start = false;
+		// RelayController::off(RelayController::COMPRESSOR_RELAY);
+	}
+
+	/** TODO: Replace LED pin to some other pin */
+	// Reversed logic - if pin off - LED ON and vice versa
+	if (is_compressor_start)
+	{
+		RelayController::off(RelayController::COMPRESSOR_RELAY);
+	}
+	else
+	{
+		RelayController::on(RelayController::COMPRESSOR_RELAY);
+	}
 }
 
 void relay_handler(const std::string &message)
@@ -355,7 +353,7 @@ void set_wifi_handler(const std::string &message)
 
 	if (args.size() < 3)
 	{
-		Serial.println("ERROR: Too few argumets");
+		Serial.println("ERROR: Too few arguments");
 		return;
 	}
 
@@ -503,11 +501,11 @@ void ble_data_handler(const std::string& message) {
 		return;
 	}
 
-	Serial.print("DEBUG: Parsed string temp from original message: ");
+	Serial.print("DEBUG: Parsed string hum from original message: ");
 	Serial.println(str_parsed_hum);
 
 	int parsed_hum = str_parsed_hum.toInt();
-	Serial.print("DEBUG: Parsed int temp value from string temp: ");
+	Serial.print("DEBUG: Parsed int hum value from string hum: ");
 	Serial.println(parsed_hum);
 
 	actual_sensor_params.temp = parsed_temp;

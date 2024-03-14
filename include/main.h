@@ -9,8 +9,8 @@ public:
 
 class SensorParameters {
 public:
-    int temp;
-    int hum;
-    int battery_charge;
-    bool relay_status;
+    int temp = 0;
+    int hum = 100;
+    int battery_charge = 100;
+    bool relay_status = false;
 };

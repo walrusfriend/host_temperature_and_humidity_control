@@ -175,7 +175,7 @@ void Network::POST_hum(const uint8_t& humidity_value) {
 	}
 	else
 	{
-		Serial.printf("ERROR: HTTPS POST humidiy ERROR: %d\n", httpCode);
+		Serial.printf("ERROR: HTTPS POST humidity ERROR: %d\n", httpCode);
 	}
 
 	https.end();
@@ -210,7 +210,7 @@ void Network::GET_hub(UserDefinedParameters& user_defined_params) {
 
 		int tmp_hum_max = reply["humidity_upper_limit"];
 		int tmp_hum_min = reply["humidity_lower_limit"];
-		user_defined_params.relay_status = reply["compressor_relay_status"];
+		bool relay_status = reply["compressor_relay_status"];
 
 		// Checking for a fool
 		if (tmp_hum_max < tmp_hum_min) {
@@ -221,6 +221,7 @@ void Network::GET_hub(UserDefinedParameters& user_defined_params) {
 
 		user_defined_params.hum_max = tmp_hum_max;
 		user_defined_params.hum_min = tmp_hum_min;
+		user_defined_params.relay_status = relay_status;
 
 		Serial.printf("INFO: GET hub:\n\thum_max: %d\n\thum_min: %d\n\trelay_status: %d\n",
 					   user_defined_params.hum_max, 
