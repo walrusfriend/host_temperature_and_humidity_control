@@ -23,6 +23,10 @@
  * 	 -
  * - Проверить, что нигде, кроме ф-ции compare_hum() не происходит управление реле
  * - Доделать сохранение и загрузку параметров сервера
+ * 
+ * - Нужно уменьшить время ожидания BLE до разрыва соединения, а то он думает, 
+ * что соединение ещё есть и не даёт подключиться датчику после перезагрузки
+ * или датчик должен отправлять метку разрыва сообщения с хостом BLE
  */
 
 const uint8_t HUMIDITY_SENSOR_ACCURACY = 2;
@@ -549,8 +553,9 @@ void ble_data_handler(const std::string& message) {
 }
 
 void ble_answer_handler(const std::string& message) {
-	Serial.println("DEBUG: BLE message arrived:");
-	Serial.print(message.c_str());
+	/** TODO: Uncomment and implement */
+	// Serial.println("\nDEBUG: BLE message arrived:");
+	// Serial.print(message.c_str());
 }
 
 /** TODO: This will be work only if the message starts with a command*/
@@ -770,8 +775,8 @@ void check_BLE_port() {
 		buff[size] = '\0';
 
 		/** TODO: Delete this debug print */
-		Serial.println("DEBUG: Data from BLE:");
-		Serial.print(buff);
+		Serial.println("\nDEBUG: Data from BLE:");
+		Serial.println(buff);
 
 		parse_message(std::string(buff));
 	}
