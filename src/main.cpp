@@ -78,6 +78,7 @@ void ble_on_handler(const std::string& message);
 void ble_wakeup(const std::string& message);
 void ble_data_handler(const std::string& message);
 void ble_answer_handler(const std::string& message);
+void sensor_freq_request_handler(const std::string& message);
 
 void parse_message(const std::string &message);
 
@@ -104,7 +105,8 @@ static const std::vector<Command> command_list = {
 	Command("wakeup_ble", ble_wakeup),
 	Command("ble", ble_handler),
 	Command("d:", ble_data_handler),
-	Command("OK", ble_answer_handler)
+	Command("OK", ble_answer_handler),
+	Command("request", sensor_freq_request_handler)
 };
 
 Network network;
@@ -527,12 +529,16 @@ void ble_data_handler(const std::string& message) {
 		(actual_sensor_params.hum > user_defined_sensor_params.hum_max - step_value))
 	{
 		// Send requests every 5 
-		Serial2.print("S:1\n");
+		// Serial2.print("S:1\n");
+		Serial2.print("S:1adfsdvfasdfavsdfasdvfadsvasdfasvfvdvasdfdfdfdfasdfasdfvsdfs\n");
+		Serial.println("Send S:1 to BLE");
 	}
 	else
 	{
 		// Send requests every 30 secs
-		Serial2.print("S:2\n");
+		// Serial2.print("S:2\n");
+		Serial2.print("S:2dasfasdfasdfasdfasdfasdfasdfasdfvadsfvadsfvsdafvdasfvasdfdsv\n");
+		Serial.println("Send S:2 to BLE");
 	}
 
 	compare_hum();
@@ -556,6 +562,11 @@ void ble_answer_handler(const std::string& message) {
 	/** TODO: Uncomment and implement */
 	// Serial.println("\nDEBUG: BLE message arrived:");
 	// Serial.print(message.c_str());
+}
+
+void sensor_freq_request_handler(const std::string& message) {
+	Serial2.print("REPLY!");
+	Serial.println("Send reply to sensor!");
 }
 
 /** TODO: This will be work only if the message starts with a command*/
