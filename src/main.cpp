@@ -79,6 +79,7 @@ void ble_wakeup(const std::string& message);
 void ble_data_handler(const std::string& message);
 void ble_answer_handler(const std::string& message);
 void sensor_freq_request_handler(const std::string& message);
+void ble_error_handler(const std::string& message);
 
 void parse_message(const std::string &message);
 
@@ -106,7 +107,8 @@ static const std::vector<Command> command_list = {
 	Command("ble", ble_handler),
 	Command("d:", ble_data_handler),
 	Command("OK", ble_answer_handler),
-	Command("request", sensor_freq_request_handler)
+	Command("REQ", sensor_freq_request_handler),
+	Command("e:", ble_error_handler)
 };
 
 Network network;
@@ -134,13 +136,11 @@ void IRAM_ATTR onSensorTimer()
 
 void IRAM_ATTR onBLEtimeout()
 {
-	/** TODO: Handle BLE timeout */
-	// if (ble.pClient->isConnected() == false)
-	// {
-	// 	ble.do_BLE_connect = true;
-	// }
+	// Disable compressor relay
+	RelayController::off(RelayController::COMPRESSOR_RELAY);
 
-	timerAlarmDisable(BLE_timeout_timer);
+	Serial.print("ERROR: There is no connection to the sensor");
+	network.POST_log("ERROR: There is no connection to the sensor");
 }
 
 void setup()
@@ -195,6 +195,17 @@ void setup()
 
 	EEPROM.get(address_to_read, network.server_cfg);
 
+	/* Replace pass with '*' */
+	std::string hidden_pass = network.wifi_cfg.pass;
+
+	if (hidden_pass.size() < 1) {
+		Serial.println("ERROR: Password size must be greater than 1!");
+		/** TODO: Handler error */
+	}
+
+	for (uint8_t i = 0; i < hidden_pass.size() - 2; ++i)
+		hidden_pass[i] = '*';
+
 	/** TODO: Create full load log */
 	Serial.printf("DEBUG: Read data from EEPROM:\n"
 				  "ssid: %s\n"
@@ -202,12 +213,11 @@ void setup()
 				  "url: %s\n"
 				  "hub id: %d\n",
 				  network.wifi_cfg.ssid,
-				  network.wifi_cfg.pass,
+				//   network.wifi_cfg.pass,
+				  hidden_pass.c_str(),
 				  network.server_cfg.url,
 				  network.server_cfg.hub_id);
 
-	// BLEDevice::init("DewPoint");
-	// Serial.println("INFO: Starting BLE work!");
 	// 1s timer
 	// This timer initiates reply to check hub state on the server
 	status_timer = timerBegin(0, 8000 - 1, true);
@@ -220,12 +230,11 @@ void setup()
 	timerAttachInterrupt(sensor_timer, &onSensorTimer, true);
 	timerAlarmWrite(sensor_timer, 300000 - 1, true);
 
-	// Set timer to 10 secs
+	// Set timer to 120 secs
 	// This timer starts after we send a data to BLE and wait for response
 	// If no response that check BLE connection and reconnect
-	// BLE_timeout_timer = timerBegin(2, 8000 - 1, true);
-	// timerAttachInterrupt(BLE_timeout_timer, &onBLEtimeout, true);
-	// timerAlarmWrite(BLE_timeout_timer, 100000 - 1, true);
+	BLE_timeout_timer = timerBegin(2, 8000 - 1, true);
+	timerAttachInterrupt(BLE_timeout_timer, &onBLEtimeout, true);
 
 	pinMode(RelayController::COMPRESSOR_RELAY, OUTPUT);
 }
@@ -288,6 +297,7 @@ void compare_hum()
 	}
 }
 
+/* Manual remote compressor relay control (legacy) */
 void relay_handler(const std::string &message)
 {
 	// std::string tmp = message.substr(6, message.size() - 6);
@@ -362,6 +372,8 @@ void set_wifi_handler(const std::string &message)
 		Serial.println("ERROR: Too few arguments");
 		return;
 	}
+
+	/** TODO: Add chech for too short pass or ssid */
 
 	if (args[1].size() > WIFI_SSID_SIZE) {
 		Serial.printf("ERROR: The SSID size must be less than %d\n", WIFI_SSID_SIZE);
@@ -458,7 +470,9 @@ void ble_wakeup(const std::string& message) {
 }
 
 void ble_data_handler(const std::string& message) {
-	/** TODO: Reset BLE timeout timer */
+	// Reset BLE timeout timer
+	timerAlarmDisable(BLE_timeout_timer);
+	timerAlarmWrite(BLE_timeout_timer, 1200000 - 1, true);
 
 	Serial.println("DEBUG: In BLE data handler function");
 	
@@ -518,26 +532,27 @@ void ble_data_handler(const std::string& message) {
 	actual_sensor_params.temp = parsed_temp;
 	actual_sensor_params.hum = parsed_hum;
 
-	/** TODO: Send reply to sensor */
-	uint8_t step_value = (user_defined_sensor_params.hum_max - 
+	uint8_t humidity_window_value = (user_defined_sensor_params.hum_max - 
 						  user_defined_sensor_params.hum_min) * 0.2;
 
-	if (step_value < HUMIDITY_SENSOR_ACCURACY)
-		step_value = HUMIDITY_SENSOR_ACCURACY;
+	if (humidity_window_value < HUMIDITY_SENSOR_ACCURACY)
+		humidity_window_value = HUMIDITY_SENSOR_ACCURACY;
 
-	if ((actual_sensor_params.hum < user_defined_sensor_params.hum_min + step_value) or
-		(actual_sensor_params.hum > user_defined_sensor_params.hum_max - step_value))
+	// Check that actual hum is on the special window
+	if (((actual_sensor_params.hum > (user_defined_sensor_params.hum_min - humidity_window_value)) and
+		 actual_sensor_params.hum < (user_defined_sensor_params.hum_min + humidity_window_value)) or
+		 actual_sensor_params.hum > (user_defined_sensor_params.hum_max - humidity_window_value) and 
+		 actual_sensor_params.hum < (user_defined_sensor_params.hum_max + humidity_window_value))
 	{
 		// Send requests every 5 
-		// Serial2.print("S:1\n");
-		Serial2.print("S:1adfsdvfasdfavsdfasdvfadsvasdfasvfvdvasdfdfdfdfasdfasdfvsdfs\n");
+		Serial2.print("S:1");
+		ble->BLE_output_buff = "S:1";
 		Serial.println("Send S:1 to BLE");
 	}
-	else
-	{
+	else {
 		// Send requests every 30 secs
-		// Serial2.print("S:2\n");
-		Serial2.print("S:2dasfasdfasdfasdfasdfasdfasdfasdfvadsfvadsfvsdafvdasfvasdfdsv\n");
+		Serial2.print("S:2");
+		ble->BLE_output_buff = "S:2";
 		Serial.println("Send S:2 to BLE");
 	}
 
@@ -565,8 +580,25 @@ void ble_answer_handler(const std::string& message) {
 }
 
 void sensor_freq_request_handler(const std::string& message) {
-	Serial2.print("REPLY!");
-	Serial.println("Send reply to sensor!");
+	// Serial2.print("REPLY!");
+	delay(200);
+	Serial2.print(ble->BLE_output_buff.c_str());
+	Serial.printf("Send %s to sensor!", ble->BLE_output_buff.c_str());
+}
+
+void ble_error_handler(const std::string& message) {
+	if (message.size() < 3) {
+		Serial.println("ERROR: ble_error_handler - message size is to low!");
+		return;
+	}
+
+	if (message[2] == '1') {
+		// Disable compressor relay
+		RelayController::off(RelayController::COMPRESSOR_RELAY);
+
+		Serial.println("Sensor error - the humidity sensor is not available!");
+		network.POST_log("ERROR: The humidity sensor is not avaliable!");
+	}
 }
 
 /** TODO: This will be work only if the message starts with a command*/
@@ -703,13 +735,13 @@ void sensor_data_send_to_remote_server()
 
 	// timerAlarmDisable(BLE_timeout_timer);
 
-	// uint8_t step_value = (network.hum_max - network.hum_min) * 0.2;
+	// uint8_t humidity_window_value = (network.hum_max - network.hum_min) * 0.2;
 
-	// if (step_value < HUMIDITY_SENSOR_ACCURACY)
-	// 	step_value = HUMIDITY_SENSOR_ACCURACY;
+	// if (humidity_window_value < HUMIDITY_SENSOR_ACCURACY)
+	// 	humidity_window_value = HUMIDITY_SENSOR_ACCURACY;
 
-	// if ((ble.curr_hum_value < network.hum_min + step_value) or
-	// 	(ble.curr_hum_value > network.hum_max - step_value))
+	// if ((ble.curr_hum_value < network.hum_min + humidity_window_value) or
+	// 	(ble.curr_hum_value > network.hum_max - humidity_window_value))
 	// {
 	// 	// Send requests every 5 secs
 	// 	// timerAlarmDisable(sensor_timer);
