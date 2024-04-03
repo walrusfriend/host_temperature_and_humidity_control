@@ -228,6 +228,7 @@ void setup()
 	// This timer initiates BLE transmission
 	sensor_timer = timerBegin(1, 8000 - 1, true);
 	timerAttachInterrupt(sensor_timer, &onSensorTimer, true);
+	// timerAlarmWrite(sensor_timer, 300000 - 1, true);
 	timerAlarmWrite(sensor_timer, 300000 - 1, true);
 
 	// Set timer to 120 secs
@@ -236,7 +237,7 @@ void setup()
 	BLE_timeout_timer = timerBegin(2, 8000 - 1, true);
 	timerAttachInterrupt(BLE_timeout_timer, &onBLEtimeout, true);
 
-	pinMode(RelayController::COMPRESSOR_RELAY, OUTPUT);
+	pinMode(RelayController::COMPRESSOR_RELAY, INPUT);
 	pinMode(LED_BUILTIN, OUTPUT);
 }
 
