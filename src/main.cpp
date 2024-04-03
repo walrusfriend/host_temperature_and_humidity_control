@@ -237,6 +237,7 @@ void setup()
 	timerAttachInterrupt(BLE_timeout_timer, &onBLEtimeout, true);
 
 	pinMode(RelayController::COMPRESSOR_RELAY, OUTPUT);
+	pinMode(LED_BUILTIN, OUTPUT);
 }
 
 void loop()
@@ -289,11 +290,11 @@ void compare_hum()
 	// Reversed logic - if pin off - LED ON and vice versa
 	if (is_compressor_start)
 	{
-		RelayController::off(RelayController::COMPRESSOR_RELAY);
+		RelayController::on(RelayController::COMPRESSOR_RELAY);
 	}
 	else
 	{
-		RelayController::on(RelayController::COMPRESSOR_RELAY);
+		RelayController::off(RelayController::COMPRESSOR_RELAY);
 	}
 }
 
