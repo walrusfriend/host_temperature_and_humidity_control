@@ -12,8 +12,9 @@ public:
 
 public:
 	static void on (const uint8_t& relay_pin) {
-		pinMode(relay_pin, INPUT);
-
+		pinMode(relay_pin, OUTPUT);
+		digitalWrite(relay_pin, LOW);
+		
 		if (relay_pin == COMPRESSOR_RELAY) {
 			digitalWrite(LED_BUILTIN, HIGH);
 		}
@@ -21,8 +22,7 @@ public:
 
 	static void off (const uint8_t& relay_pin) {
 		/** TODO: Try to set relay pin to HIGH*/
-		pinMode(relay_pin, OUTPUT);
-		digitalWrite(relay_pin, LOW);
+		pinMode(relay_pin, INPUT);
 		// digitalWrite(relay_pin, HIGH);
 
 		if (relay_pin == COMPRESSOR_RELAY) {
