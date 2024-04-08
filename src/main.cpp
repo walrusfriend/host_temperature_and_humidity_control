@@ -32,12 +32,13 @@
 const uint8_t HUMIDITY_SENSOR_ACCURACY = 2;
 
 bool is_compressor_start = false;
-bool is_relay_controlled_by_user = false;
+bool is_relay_controlled_by_user_through_COM = false;
 
 void compare_hum();
 
 void status_tim_function();
 void sensor_tim_function();
+void ble_timeout();
 void connect_to_wifi();
 void sensor_data_send_to_remote_server();
 void connect_to_BLE();
@@ -47,7 +48,6 @@ void check_BLE_port();
 struct Command
 {
 	std::string name;
-	// std::function<void(const std::string &)> handler;
 	void(*handler)(const std::string&);
 
 	Command(std::string &&command_name, void(*command_handler)(const std::string &))
@@ -80,6 +80,7 @@ void ble_data_handler(const std::string& message);
 void ble_answer_handler(const std::string& message);
 void sensor_freq_request_handler(const std::string& message);
 void ble_error_handler(const std::string& message);
+void set_freq_handler(const std::string& message);
 
 void parse_message(const std::string &message);
 
@@ -108,7 +109,8 @@ static const std::vector<Command> command_list = {
 	Command("d:", ble_data_handler),
 	Command("OK", ble_answer_handler),
 	Command("REQ", sensor_freq_request_handler),
-	Command("e:", ble_error_handler)
+	Command("e:", ble_error_handler),
+	Command("set_freq", set_freq_handler)
 };
 
 Network network;
@@ -123,6 +125,7 @@ hw_timer_t *BLE_timeout_timer;
 
 bool is_status_tim = false;
 bool is_sensor_tim = false;
+bool is_ble_timeout = false;
 
 void IRAM_ATTR onStatusTimer()
 {
@@ -136,20 +139,13 @@ void IRAM_ATTR onSensorTimer()
 
 void IRAM_ATTR onBLEtimeout()
 {
-	// Disable compressor relay
-	RelayController::off(RelayController::COMPRESSOR_RELAY);
-
-	Serial.print("ERROR: There is no connection to the sensor");
-	network.POST_log("ERROR: There is no connection to the sensor");
+	is_ble_timeout = true;
 }
 
 void setup()
 {
 	Serial.begin(115200);
 	Serial.println("INFO: Start program!");
-
-	// UART port to BLE module
-	// Serial2.begin(9600);
 
 	ble = std::make_unique<BLE>();
 
@@ -226,16 +222,17 @@ void setup()
 
 	// Set timer to 30 secs
 	// This timer initiates BLE transmission
-	sensor_timer = timerBegin(1, 8000 - 1, true);
-	timerAttachInterrupt(sensor_timer, &onSensorTimer, true);
+	// sensor_timer = timerBegin(1, 8000 - 1, true);
+	// timerAttachInterrupt(sensor_timer, &onSensorTimer, true);
 	// timerAlarmWrite(sensor_timer, 300000 - 1, true);
-	timerAlarmWrite(sensor_timer, 300000 - 1, true);
+	// timerAlarmWrite(sensor_timer, 300000 - 1, true);
 
 	// Set timer to 120 secs
 	// This timer starts after we send a data to BLE and wait for response
 	// If no response that check BLE connection and reconnect
 	BLE_timeout_timer = timerBegin(2, 8000 - 1, true);
 	timerAttachInterrupt(BLE_timeout_timer, &onBLEtimeout, true);
+	timerAlarmWrite(BLE_timeout_timer, 1200000 - 1, true);
 
 	pinMode(RelayController::COMPRESSOR_RELAY, INPUT);
 	pinMode(LED_BUILTIN, OUTPUT);
@@ -249,8 +246,10 @@ void loop()
 	if (is_status_tim)
 		status_tim_function();
 
-	if (is_sensor_tim)
-		sensor_tim_function();
+	// if (is_sensor_tim)
+	// 	sensor_tim_function();
+	if (is_ble_timeout)
+		ble_timeout();
 
 	check_COM_port();
 
@@ -259,35 +258,34 @@ void loop()
 
 void compare_hum()
 {
-	/** TODO: If BLE timeout detected then close relay */
-	// if (BLE::block_relay == true) {
-		// Serial.println("INFO: Relay off because BLE connection lost");
-		// is_compressor_start = false;
-	// }
+	if (is_relay_controlled_by_user_through_COM == false) {
+		// if (BLE::block_relay == true) {
+			// Serial.println("INFO: Relay off because BLE connection lost");
+			// is_compressor_start = false;
+		// }
 
-	if (actual_sensor_params.hum < user_defined_sensor_params.hum_min)
-	{
-		Serial.println("INFO: A relay is on");
-		is_compressor_start = true;
+		if (actual_sensor_params.hum < user_defined_sensor_params.hum_min)
+		{
+			Serial.println("INFO: A relay is on");
+			is_compressor_start = true;
+		}
+		
+		if (actual_sensor_params.hum > user_defined_sensor_params.hum_max)
+		{
+			Serial.println("INFO: A relay is off");
+			is_compressor_start = false;
+
+			/** TODO: Activate a heater */
+			Serial.println("INFO: A Heater is activated");
+		}
+
+		// Forces compressor relay close (off the compressor)
+		if (user_defined_sensor_params.relay_status == false) {
+			Serial.println("INFO: Force change relay status to off");
+			is_compressor_start = false;
+		}
 	}
-	
-	if (actual_sensor_params.hum > user_defined_sensor_params.hum_max)
-	{
-		Serial.println("INFO: A relay is off");
-		is_compressor_start = false;
 
-		/** TODO: Activate a heater */
-		Serial.println("INFO: A Heater is activated");
-	}
-
-	// Forces compressor relay close (off the compressor)
-	if (user_defined_sensor_params.relay_status == false) {
-		Serial.println("INFO: Force change relay status to off");
-		is_compressor_start = false;
-		// RelayController::off(RelayController::COMPRESSOR_RELAY);
-	}
-
-	/** TODO: Replace LED pin to some other pin */
 	// Reversed logic - if pin off - LED ON and vice versa
 	if (is_compressor_start)
 	{
@@ -302,33 +300,34 @@ void compare_hum()
 /* Manual remote compressor relay control (legacy) */
 void relay_handler(const std::string &message)
 {
-	// std::string tmp = message.substr(6, message.size() - 6);
+	std::string tmp = message.substr(6, message.size() - 6);
 
-	// Serial.printf("%s\n", tmp.c_str());
+	Serial.printf("%s\n", tmp.c_str());
 
-	// if (tmp == "on")
-	// {
-	// 	is_compressor_start = true;
-	// 	is_relay_controlled_by_user = true;
-	// 	ble.BLE_reply = "Set the relay status to ON\n";
-	// }
-	// else if (tmp == "off")
-	// {
-	// 	is_compressor_start = false;
-	// 	is_relay_controlled_by_user = true;
-	// 	ble.BLE_reply = "Set the relay status to OFF\n";
-	// }
-	// else if (tmp == "auto")
-	// {
-	// 	is_relay_controlled_by_user = false;
-	// 	ble.BLE_reply = "The relay change its state automatically!\n";
-	// }
-	// else
-	// {
-	// 	ble.BLE_reply = "ERROR: Unknown argument!\n";
-	// }
-
-	// Serial.print(ble.BLE_reply.c_str());
+	if (tmp == "on")
+	{
+		is_compressor_start = true;
+		is_relay_controlled_by_user_through_COM = true;
+		Serial.println("Set the relay status to ON\n");
+		network.POST_log("INFO: Relay has been manually switched by COM port to ON state\n");
+	}
+	else if (tmp == "off")
+	{
+		is_compressor_start = false;
+		is_relay_controlled_by_user_through_COM = true;
+		Serial.println("Set the relay status to OFF\n");
+		network.POST_log("INFO: Relay has been manually switched by COM port to OFF state\n");
+	}
+	else if (tmp == "auto")
+	{
+		is_relay_controlled_by_user_through_COM = false;
+		Serial.println("The relay change its state automatically!\n");
+		network.POST_log("INFO: Relay has been manually switched by COM port to AUTO state\n");
+	}
+	else
+	{
+		Serial.println("ERROR: Unknown argument!\n");
+	}
 }
 
 void start_handler(const std::string &message)
@@ -375,7 +374,7 @@ void set_wifi_handler(const std::string &message)
 		return;
 	}
 
-	/** TODO: Add chech for too short pass or ssid */
+	/** TODO: Add check for too short pass or ssid */
 
 	if (args[1].size() > WIFI_SSID_SIZE) {
 		Serial.printf("ERROR: The SSID size must be less than %d\n", WIFI_SSID_SIZE);
@@ -603,6 +602,10 @@ void ble_error_handler(const std::string& message) {
 	}
 }
 
+void set_freq_handler(const std::string& message) {
+	// freq 
+}
+
 /** TODO: This will be work only if the message starts with a command*/
 void parse_message(const std::string &message)
 {
@@ -644,6 +647,7 @@ void status_tim_function()
 		Serial.println("DEBUG: On status handler");
 		network.GET_hub(user_defined_sensor_params);
 		Serial.println();
+		network.POST_log("INFO: A GET request has been sent\n");
 	}
 	else
 	{
@@ -658,12 +662,22 @@ void status_tim_function()
 
 void sensor_tim_function()
 {
-	Serial.println("INFO: BLE check");
+	// Serial.println("INFO: BLE check");
 	// Serial.println("INFO: On BLE send hanler");
 	// // ble.p_serial_characteristic->writeValue("d");
-	is_sensor_tim = false;
+	// is_sensor_tim = false;
 
 	// timerAlarmEnable(BLE_timeout_timer);
+}
+
+void ble_timeout() {
+	// Disable compressor relay
+	RelayController::off(RelayController::COMPRESSOR_RELAY);
+
+	Serial.print("ERROR: There is no connection to the sensor");
+	network.POST_log("ERROR: There is no connection to the sensor");
+
+	is_ble_timeout = false;
 }
 
 void connect_to_wifi()

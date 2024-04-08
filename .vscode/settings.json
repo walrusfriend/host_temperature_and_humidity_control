@@ -49,7 +49,8 @@
         "cinttypes": "cpp",
         "typeinfo": "cpp",
         "regex": "cpp",
-        "bitset": "cpp"
+        "bitset": "cpp",
+        "iostream": "cpp"
     },
     "C_Cpp.default.compilerPath": "D:/Users/Andrei/.platformio/packages/toolchain-xtensa-esp32/bin/xtensa-esp32-elf-gcc.exe",
     "cmake.configureOnOpen": false
