@@ -120,21 +120,14 @@ SensorParameters actual_sensor_params;
 UserDefinedParameters user_defined_sensor_params;
 
 hw_timer_t *status_timer;
-hw_timer_t *sensor_timer;
 hw_timer_t *BLE_timeout_timer;
 
 bool is_status_tim = false;
-bool is_sensor_tim = false;
 bool is_ble_timeout = false;
 
 void IRAM_ATTR onStatusTimer()
 {
 	is_status_tim = true;
-}
-
-void IRAM_ATTR onSensorTimer()
-{
-	is_sensor_tim = true;
 }
 
 void IRAM_ATTR onBLEtimeout()
@@ -146,8 +139,6 @@ void setup()
 {
 	Serial.begin(115200);
 	Serial.println("INFO: Start program!");
-
-	ble = std::make_unique<BLE>();
 
 	// Try to load data from EEPROM
 	EEPROM.begin(4096);
@@ -214,28 +205,26 @@ void setup()
 				  network.server_cfg.url,
 				  network.server_cfg.hub_id);
 
-	// 1s timer
 	// This timer initiates reply to check hub state on the server
+	constexpr uint8_t STATUS_TIMER_SEC = 1;
+	constexpr uint32_t STATUS_TIMER_COUNTER = STATUS_TIMER_SEC * 10000;
 	status_timer = timerBegin(0, 8000 - 1, true);
 	timerAttachInterrupt(status_timer, &onStatusTimer, true);
-	timerAlarmWrite(status_timer, 100000 - 1, true);
+	timerAlarmWrite(status_timer, STATUS_TIMER_COUNTER - 1, true);
 
-	// Set timer to 30 secs
-	// This timer initiates BLE transmission
-	// sensor_timer = timerBegin(1, 8000 - 1, true);
-	// timerAttachInterrupt(sensor_timer, &onSensorTimer, true);
-	// timerAlarmWrite(sensor_timer, 300000 - 1, true);
-	// timerAlarmWrite(sensor_timer, 300000 - 1, true);
-
-	// Set timer to 120 secs
 	// This timer starts after we send a data to BLE and wait for response
 	// If no response that check BLE connection and reconnect
-	BLE_timeout_timer = timerBegin(2, 8000 - 1, true);
+	constexpr uint8_t BLE_TIMEOUT_TIMER_SEC = 30;
+	constexpr uint32_t BLE_TIMEOUT_TIMER_COUNTER = BLE_TIMEOUT_TIMER_SEC * 10000;
+	BLE_timeout_timer = timerBegin(1, 8000 - 1, true);
 	timerAttachInterrupt(BLE_timeout_timer, &onBLEtimeout, true);
-	timerAlarmWrite(BLE_timeout_timer, 1200000 - 1, true);
+	timerAlarmWrite(BLE_timeout_timer, BLE_TIMEOUT_TIMER_COUNTER - 1, true);
 
 	pinMode(RelayController::COMPRESSOR_RELAY, INPUT);
 	pinMode(LED_BUILTIN, OUTPUT);
+
+	connect_to_wifi();
+	ble = std::make_unique<BLE>();
 }
 
 void loop()
@@ -246,24 +235,16 @@ void loop()
 	if (is_status_tim)
 		status_tim_function();
 
-	// if (is_sensor_tim)
-	// 	sensor_tim_function();
 	if (is_ble_timeout)
 		ble_timeout();
 
 	check_COM_port();
-
 	check_BLE_port();
 }
 
 void compare_hum()
 {
 	if (is_relay_controlled_by_user_through_COM == false) {
-		// if (BLE::block_relay == true) {
-			// Serial.println("INFO: Relay off because BLE connection lost");
-			// is_compressor_start = false;
-		// }
-
 		if (actual_sensor_params.hum < user_defined_sensor_params.hum_min)
 		{
 			Serial.println("INFO: A relay is on");
@@ -276,7 +257,7 @@ void compare_hum()
 			is_compressor_start = false;
 
 			/** TODO: Activate a heater */
-			Serial.println("INFO: A Heater is activated");
+			// Serial.println("INFO: A Heater is activated");
 		}
 
 		// Forces compressor relay close (off the compressor)
@@ -471,9 +452,7 @@ void ble_wakeup(const std::string& message) {
 }
 
 void ble_data_handler(const std::string& message) {
-	// Reset BLE timeout timer
-	timerAlarmDisable(BLE_timeout_timer);
-	timerAlarmWrite(BLE_timeout_timer, 1200000 - 1, true);
+	timerRestart(BLE_timeout_timer);
 
 	Serial.println("DEBUG: In BLE data handler function");
 	
@@ -481,15 +460,15 @@ void ble_data_handler(const std::string& message) {
 	auto start_temp_pos = message.find('t');
 	auto end_temp_pos = message.find('h');
 
-	/** TODO: Generate a log message and send it to server if couldn't parse BLE message */
-
 	if (start_temp_pos == std::string::npos)  {
 		Serial.println("ERROR: Couldn't find the start position of the temperature value in BLE message!");
+		network.POST_log("ERROR: Couldn't find the start position of the temperature value in BLE message from sensor!");
 		return;
 	}
 
 	if (end_temp_pos == std::string::npos) {
-		Serial.println("ERROR: Couldn't find the start position of the temperature value in BLE message!");
+		Serial.println("ERROR: Couldn't find the end position of the temperature value in BLE message!");
+		network.POST_log("ERROR: Couldn't find the end position of the temperature value in BLE message from sensor!");
 		return;
 	}
 
@@ -513,6 +492,7 @@ void ble_data_handler(const std::string& message) {
 
 	if (start_hum_pos == std::string::npos)  {
 		Serial.println("ERROR: Couldn't find the start position of the humidity value in BLE message!");
+		network.POST_log("ERROR: Couldn't find the start position of the humidity value in BLE message from sensor!");
 		return;
 	}
 
@@ -598,7 +578,7 @@ void ble_error_handler(const std::string& message) {
 		RelayController::off(RelayController::COMPRESSOR_RELAY);
 
 		Serial.println("Sensor error - the humidity sensor is not available!");
-		network.POST_log("ERROR: The humidity sensor is not avaliable!");
+		network.POST_log("ERROR: The humidity sensor is not available!");
 	}
 }
 
@@ -647,7 +627,7 @@ void status_tim_function()
 		Serial.println("DEBUG: On status handler");
 		network.GET_hub(user_defined_sensor_params);
 		Serial.println();
-		network.POST_log("INFO: A GET request has been sent\n");
+		network.POST_log("INFO: A GET HUB request has been sent\n");
 	}
 	else
 	{
@@ -663,7 +643,7 @@ void status_tim_function()
 void sensor_tim_function()
 {
 	// Serial.println("INFO: BLE check");
-	// Serial.println("INFO: On BLE send hanler");
+	// Serial.println("INFO: On BLE send handler");
 	// // ble.p_serial_characteristic->writeValue("d");
 	// is_sensor_tim = false;
 
@@ -678,6 +658,8 @@ void ble_timeout() {
 	network.POST_log("ERROR: There is no connection to the sensor");
 
 	is_ble_timeout = false;
+
+	timerRestart(BLE_timeout_timer);
 }
 
 void connect_to_wifi()
@@ -734,65 +716,14 @@ void connect_to_wifi()
 		network.do_wifi_connect = false;
 
 		timerAlarmEnable(status_timer);
-		timerAlarmEnable(sensor_timer);
+
+		network.POST_log("INFO: Wi-Fi connected");
 	}
-}
-
-void sensor_data_send_to_remote_server()
-{
-	// Serial.println("INFO: On BLE data received handler");
-	// /** TODO: Нужно посылать значение, пока оно не будет принято.
-	//  * 	Возможно, даже складывать значения в очередь, пока всё не будет отправлено.
-	//  * 	Также со всеми запросами - нужно удостовериться, что запрос дошёл и, если нет,
-	//  * 	то отправлять запрос до тех пор, пока не получится отправить.
-	//  * 	Можно генерировать логи, что не было связи с сервером в какое-то время.
-	//  * 	Нужно настроить время на борту, чтобы привязывать логи к "бортовому" времени.
-	//  */
-
-	// timerAlarmDisable(BLE_timeout_timer);
-
-	// uint8_t humidity_window_value = (network.hum_max - network.hum_min) * 0.2;
-
-	// if (humidity_window_value < HUMIDITY_SENSOR_ACCURACY)
-	// 	humidity_window_value = HUMIDITY_SENSOR_ACCURACY;
-
-	// if ((ble.curr_hum_value < network.hum_min + humidity_window_value) or
-	// 	(ble.curr_hum_value > network.hum_max - humidity_window_value))
-	// {
-	// 	// Send requests every 5 secs
-	// 	// timerAlarmDisable(sensor_timer);
-	// 	// timerAlarmWrite(sensor_timer, 50000 - 1, true);
-	// 	// timerAlarmEnable(sensor_timer);
-	// }
-	// else
-	// {
-	// 	// Send requests every 30 secs
-	// 	// timerAlarmDisable(sensor_timer);
-	// 	// timerAlarmWrite(sensor_timer, 300000 - 1, true);
-	// 	// timerAlarmEnable(sensor_timer);
-	// }
-
-	// Check an atmosphere params and the user input and control the compressor relay
-	// compare_hum();
-
-	// // Check the current connection status
-	// if ((WiFi.status() == WL_CONNECTED))
-	// {
-	// 	network.POST_hum(ble.curr_hum_value);
-	// 	delay(100);
-	// 	network.POST_temp(ble.curr_temp_value);
-	// 	Serial.println();
-	// }
-	// else
-	// {
-	// 	network.handle_disconnect();
-	// }
-	// ble.is_data_from_BLE_received = false;
 }
 
 void connect_to_BLE()
 {
-	Serial.println("INFO: Try to connect to BLE");
+	// Serial.println("INFO: Try to connect to BLE");
 	// uint8_t number_of_unsuccessful_connections = 0;
 	// while (ble.connectToServer() == false)
 	// {
@@ -809,7 +740,7 @@ void connect_to_BLE()
 	// Serial.println();
 	// ble.do_BLE_connect = false;
 
-	Serial.println("INFO: BLE connected!");
+	// Serial.println("INFO: BLE connected!");
 }
 
 void check_COM_port()

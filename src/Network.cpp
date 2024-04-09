@@ -6,36 +6,22 @@ extern hw_timer_t *status_timer;
 extern hw_timer_t *sensor_timer;
 
 Network::Network() {
-	// client = new WiFiClientSecure;
-	// WiFi.setSleep(false);
-	// WiFi.setTxPower(WIFI_POWER_19_5dBm);
-	// WiFi.enableLongRange(true);
-	// WiFi.useStaticBuffers(true);
-	// WiFi.disconnect(true, true);
 }
 
 Network::~Network() {
-
 }
 
 void Network::handle_disconnect() {
+	/** TODO: Disable compressor if Wi-Fi disconnected */
 	Serial.println("ERROR: Wi-Fi connection lost");
-	// timerAlarmDisable(status_timer);
-	// timerAlarmDisable(sensor_timer);
 	do_wifi_connect = true;
 
-	// delete client;
-	// client = nullptr;
-
 	if (WiFi.disconnect()) {
-		Serial.println("INFO: Disconnected succsessfully!");
+		Serial.println("INFO: Disconnected successfully!");
 	}
 	else {
-		Serial.println("INFO: Disconnetion failed!");
+		Serial.println("INFO: Disconnection failed!");
 	}
-
-	// WiFi.disconnect(false, false);
-	// WiFi.disconnect(true, true);
 }
 
 void Network::POST_log(const std::string_view& log_string) {

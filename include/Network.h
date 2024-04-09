@@ -16,7 +16,7 @@ struct WiFi_Config {
 };
 
 struct RemoteServerConfig {
-    char url[32] = {0};
+    char url[32] = "https://serverpd.ru";
     uint32_t hub_id = 0;
     uint32_t sensor_id = 0;
     uint32_t establishment_id = 0;

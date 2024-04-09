@@ -1,5 +1,8 @@
 #include "BLE.h"
 
+#include "Network.h"
+extern Network network;
+
 BLE::BLE() {
 	pinMode(power_pin, OUTPUT);
 	pinMode(wakeup_pin, OUTPUT);
@@ -39,6 +42,7 @@ BLE::BLE() {
 	if (is_reply_received == false) {
 		/** TODO: Handle an error */
 		Serial.println("ERROR: Couldn't to BLE module!");
+		network.POST_log("ERROR: Couldn't to BLE module!");
 	}
 }
 
