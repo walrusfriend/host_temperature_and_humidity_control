@@ -24,9 +24,10 @@ void Network::handle_disconnect() {
 	}
 }
 
-void Network::POST_log(const std::string_view& log_string) {
+void Network::POST_log(const std::string_view& tag, const std::string_view& log_string) {
 	StaticJsonDocument<128> query;
 
+	query["tag"] = tag;
 	query["log_value"] = log_string;
 	query["hub_id"] = hub_id;
 
@@ -36,7 +37,7 @@ void Network::POST_log(const std::string_view& log_string) {
 	bool status = https.begin(server_cfg.url + log_endpoint);
 
 	if(status == false) {
-		Serial.println("ERROR: Couldn't start POST log https session!");
+		Serial.println("ERROR: POST_log() - Couldn't start https session!");
 		https.end();
 		return;
 	}
@@ -51,7 +52,7 @@ void Network::POST_log(const std::string_view& log_string) {
 		DeserializationError error = deserializeJson(reply, payload);
 
 		if (error) {
-			Serial.println("ERROR: Deserialization error!");
+			Serial.println("ERROR: POST_log() - Deserialization error!");
 			return;
 		}
 
@@ -60,14 +61,15 @@ void Network::POST_log(const std::string_view& log_string) {
 			Serial.println(payload);
 		}
 		else {
-			Serial.println("INFO: Log: OK");
+			Serial.println("INFO: Log -  OK");
 		}
 	}
 	else
 	{
-		Serial.println("ERROR: HTTP-request error");
+		Serial.println("ERROR: POST_log() - HTTP-request error");
 	}
 
+	Serial.println();
 	https.end();
 }
 
@@ -84,7 +86,7 @@ void Network::POST_temp(const uint8_t& temperature_value) {
 	bool status = https.begin(server_cfg.url + temp_endpoint);
 
 	if(status == false) {
-		Serial.println("ERROR: Couldn't start POST temp https session!");
+		Serial.println("ERROR: POST_temp() - Couldn't start https session!");
 		https.end();
 		return;
 	}
@@ -99,7 +101,7 @@ void Network::POST_temp(const uint8_t& temperature_value) {
 		DeserializationError error = deserializeJson(reply, payload);
 
 		if (error) {
-			Serial.println("ERROR: Deserialization error!");
+			Serial.println("ERROR: POST_temp() - Deserialization error!");
 			return;
 		}
 
@@ -108,12 +110,12 @@ void Network::POST_temp(const uint8_t& temperature_value) {
 			Serial.println(payload);
 		}
 		else {
-			Serial.println("INFO: Temperature: OK");
+			Serial.println("INFO: Temperature -  OK");
 		}
 	}
 	else
 	{
-		Serial.printf("ERROR: HTTPS POST temperature ERROR: %d\n", httpCode);
+		Serial.printf("ERROR: POST_temp() - HTTPS ERROR: %d\n", httpCode);
 	}
 
 	https.end();
@@ -132,7 +134,7 @@ void Network::POST_hum(const uint8_t& humidity_value) {
 	bool status = https.begin(server_cfg.url + hum_endpoint);
 
 	if(status == false) {
-		Serial.println("ERROR: Couldn't start GET hub https session!");
+		Serial.println("ERROR: POST_hum() - Couldn't start https session!");
 		https.end();
 		return;
 	}
@@ -147,7 +149,7 @@ void Network::POST_hum(const uint8_t& humidity_value) {
 		DeserializationError error = deserializeJson(reply, payload);
 
 		if (error) {
-			Serial.println("ERROR: Deserialization error!");
+			Serial.println("ERROR: POST_hum() -Deserialization error!");
 			return;
 		}
 
@@ -156,12 +158,12 @@ void Network::POST_hum(const uint8_t& humidity_value) {
 			Serial.println(payload);
 		}
 		else {
-			Serial.println("INFO: Humidity: OK");
+			Serial.println("INFO: Humidity - OK");
 		}
 	}
 	else
 	{
-		Serial.printf("ERROR: HTTPS POST humidity ERROR: %d\n", httpCode);
+		Serial.printf("ERROR: POST_hum() - HTTPS ERROR: %d\n", httpCode);
 	}
 
 	https.end();
@@ -173,7 +175,7 @@ void Network::GET_hub(UserDefinedParameters& user_defined_params) {
 	bool status = https.begin(server_cfg.url + hub_get_endpoint + String(establishment_id));
 
 	if(status == false) {
-		Serial.println("ERROR: Couldn't start GET hub https session!");
+		Serial.println("ERROR: GET_hub() - Couldn't start https session!");
 		https.end();
 		return;
 	}
@@ -190,7 +192,7 @@ void Network::GET_hub(UserDefinedParameters& user_defined_params) {
 
 		if (error)
 		{
-			Serial.printf("ERROR: Deserialization error: %d!\n", error);
+			Serial.printf("ERROR: GET_hub() - Deserialization error: %d!\n", error);
 			return;
 		}
 
@@ -201,7 +203,7 @@ void Network::GET_hub(UserDefinedParameters& user_defined_params) {
 		// Checking for a fool
 		if (tmp_hum_max < tmp_hum_min) {
 			/** TODO: Send a log to a server */
-			Serial.println("ERROR: A max hum value must be higher than a min hum value!");
+			Serial.println("ERROR: GET_hub() - A max hum value must be higher than a min hum value!");
 			return;
 		}
 
@@ -215,7 +217,7 @@ void Network::GET_hub(UserDefinedParameters& user_defined_params) {
 					   user_defined_params.relay_status);
 	}
 	else {
-		Serial.printf("ERROR: HTTPS GET hub ERROR: %d\n", httpCode);
+		Serial.printf("ERROR: GET_hub() - HTTPS ERROR: %d\n", httpCode);
 	}
 
 	https.end();

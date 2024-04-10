@@ -37,12 +37,14 @@ BLE::BLE() {
 		if (connection_tries >= MAX_CONNECTION_TRIES) {
 			break;
 		}
+
+		++connection_tries;
 	}
 
 	if (is_reply_received == false) {
 		/** TODO: Handle an error */
-		Serial.println("ERROR: Couldn't to BLE module!");
-		network.POST_log("ERROR: Couldn't to BLE module!");
+		Serial.println("ERROR: Couldn't connect to BLE module!");
+		network.POST_log("ERROR", "Couldn't connect to BLE module!");
 	}
 }
 

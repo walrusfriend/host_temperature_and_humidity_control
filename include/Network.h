@@ -30,7 +30,7 @@ public:
     void handle_disconnect();
 
     // REST API functions
-    void POST_log(const std::string_view& log_string);
+    void POST_log(const std::string_view& tag, const std::string_view& log_string);
     void POST_temp(const uint8_t& temperature_value);
     void POST_hum(const uint8_t& humidity_value);
     void GET_hub(UserDefinedParameters& params);

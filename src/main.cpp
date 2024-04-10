@@ -15,7 +15,7 @@
  * - Add checks for all!
  * - Настройка частоты передачи
  * - Включить и выключить передачу
- * - Count the number of connetion tries and handle infinity connetion
+ * - Count the number of connection tries and handle infinity connection
  * - Rename variables
  * - Try send data and only then reconnect to BLE server
  * - Refactor code:
@@ -40,7 +40,6 @@ void status_tim_function();
 void sensor_tim_function();
 void ble_timeout();
 void connect_to_wifi();
-void sensor_data_send_to_remote_server();
 void connect_to_BLE();
 void check_COM_port();
 void check_BLE_port();
@@ -219,6 +218,7 @@ void setup()
 	BLE_timeout_timer = timerBegin(1, 8000 - 1, true);
 	timerAttachInterrupt(BLE_timeout_timer, &onBLEtimeout, true);
 	timerAlarmWrite(BLE_timeout_timer, BLE_TIMEOUT_TIMER_COUNTER - 1, true);
+	timerAlarmEnable(BLE_timeout_timer);
 
 	pinMode(RelayController::COMPRESSOR_RELAY, INPUT);
 	pinMode(LED_BUILTIN, OUTPUT);
@@ -247,13 +247,11 @@ void compare_hum()
 	if (is_relay_controlled_by_user_through_COM == false) {
 		if (actual_sensor_params.hum < user_defined_sensor_params.hum_min)
 		{
-			Serial.println("INFO: A relay is on");
 			is_compressor_start = true;
 		}
 		
 		if (actual_sensor_params.hum > user_defined_sensor_params.hum_max)
 		{
-			Serial.println("INFO: A relay is off");
 			is_compressor_start = false;
 
 			/** TODO: Activate a heater */
@@ -270,10 +268,12 @@ void compare_hum()
 	// Reversed logic - if pin off - LED ON and vice versa
 	if (is_compressor_start)
 	{
+		Serial.println("INFO: A relay is on");
 		RelayController::on(RelayController::COMPRESSOR_RELAY);
 	}
 	else
 	{
+		Serial.println("INFO: A relay is off");
 		RelayController::off(RelayController::COMPRESSOR_RELAY);
 	}
 }
@@ -290,20 +290,20 @@ void relay_handler(const std::string &message)
 		is_compressor_start = true;
 		is_relay_controlled_by_user_through_COM = true;
 		Serial.println("Set the relay status to ON\n");
-		network.POST_log("INFO: Relay has been manually switched by COM port to ON state\n");
+		network.POST_log("INFO", "Relay has been manually switched by COM port to ON state");
 	}
 	else if (tmp == "off")
 	{
 		is_compressor_start = false;
 		is_relay_controlled_by_user_through_COM = true;
 		Serial.println("Set the relay status to OFF\n");
-		network.POST_log("INFO: Relay has been manually switched by COM port to OFF state\n");
+		network.POST_log("INFO", "Relay has been manually switched by COM port to OFF state");
 	}
 	else if (tmp == "auto")
 	{
 		is_relay_controlled_by_user_through_COM = false;
 		Serial.println("The relay change its state automatically!\n");
-		network.POST_log("INFO: Relay has been manually switched by COM port to AUTO state\n");
+		network.POST_log("INFO", "Relay has been manually switched by COM port to AUTO state");
 	}
 	else
 	{
@@ -462,13 +462,13 @@ void ble_data_handler(const std::string& message) {
 
 	if (start_temp_pos == std::string::npos)  {
 		Serial.println("ERROR: Couldn't find the start position of the temperature value in BLE message!");
-		network.POST_log("ERROR: Couldn't find the start position of the temperature value in BLE message from sensor!");
+		network.POST_log("ERROR", "Couldn't find the start position of the temperature value in BLE message from sensor!");
 		return;
 	}
 
 	if (end_temp_pos == std::string::npos) {
 		Serial.println("ERROR: Couldn't find the end position of the temperature value in BLE message!");
-		network.POST_log("ERROR: Couldn't find the end position of the temperature value in BLE message from sensor!");
+		network.POST_log("ERROR", "Couldn't find the end position of the temperature value in BLE message from sensor!");
 		return;
 	}
 
@@ -492,7 +492,7 @@ void ble_data_handler(const std::string& message) {
 
 	if (start_hum_pos == std::string::npos)  {
 		Serial.println("ERROR: Couldn't find the start position of the humidity value in BLE message!");
-		network.POST_log("ERROR: Couldn't find the start position of the humidity value in BLE message from sensor!");
+		network.POST_log("ERROR", "Couldn't find the start position of the humidity value in BLE message from sensor!");
 		return;
 	}
 
@@ -578,7 +578,7 @@ void ble_error_handler(const std::string& message) {
 		RelayController::off(RelayController::COMPRESSOR_RELAY);
 
 		Serial.println("Sensor error - the humidity sensor is not available!");
-		network.POST_log("ERROR: The humidity sensor is not available!");
+		network.POST_log("ERROR", "The humidity sensor is not available!");
 	}
 }
 
@@ -627,7 +627,7 @@ void status_tim_function()
 		Serial.println("DEBUG: On status handler");
 		network.GET_hub(user_defined_sensor_params);
 		Serial.println();
-		network.POST_log("INFO: A GET HUB request has been sent\n");
+		network.POST_log("INFO", "A GET HUB request has been sent");
 	}
 	else
 	{
@@ -651,11 +651,15 @@ void sensor_tim_function()
 }
 
 void ble_timeout() {
+	/** TODO: Нужно выключать реле наглухо до тех пор, пока не возобновится связь по BLE
+	 * Например, можно выставлять флаг, который будет запрещать изменять состояние реле
+	 * или всегда тянуть вниз
+	*/
 	// Disable compressor relay
 	RelayController::off(RelayController::COMPRESSOR_RELAY);
 
 	Serial.print("ERROR: There is no connection to the sensor");
-	network.POST_log("ERROR: There is no connection to the sensor");
+	network.POST_log("ERROR", "There is no connection to the sensor");
 
 	is_ble_timeout = false;
 
@@ -717,7 +721,7 @@ void connect_to_wifi()
 
 		timerAlarmEnable(status_timer);
 
-		network.POST_log("INFO: Wi-Fi connected");
+		network.POST_log("INFO", "Wi-Fi connected");
 	}
 }
 
