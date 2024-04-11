@@ -13,39 +13,7 @@ BLE::BLE() {
 	Serial2.begin(230400); // D17 - TX, D16 - RX
 	// Check BLE connection
 
-	Serial2.print("AT");
-
-	// Wait for reply
-	bool is_reply_received = false;
-	uint8_t MAX_CONNECTION_TRIES = 50;
-	uint8_t connection_tries = 0;
-
-	while(is_reply_received == false) {
-		uint16_t size = Serial2.available();
-		if (size >= 1) {
-			char buff[128];
-			Serial2.readBytes(buff, size);
-			is_reply_received = true;
-
-			Serial.println("DEBUG: BLE module responded");
-		}
-
-		Serial.println("Try to connect to BLE module");
-
-		delay(100);
-
-		if (connection_tries >= MAX_CONNECTION_TRIES) {
-			break;
-		}
-
-		++connection_tries;
-	}
-
-	if (is_reply_received == false) {
-		/** TODO: Handle an error */
-		Serial.println("ERROR: Couldn't connect to BLE module!");
-		network.POST_log("ERROR", "Couldn't connect to BLE module!");
-	}
+	check_connection();
 }
 
 BLE::~BLE() {
@@ -62,4 +30,34 @@ void BLE::wake_up() const {
 	digitalWrite(wakeup_pin, LOW);
 	delay(1100);
 	digitalWrite(wakeup_pin, HIGH);
+}
+
+void BLE::check_connection() {
+	// Wait for reply
+	uint8_t MAX_CONNECTION_TRIES = 10;
+	uint8_t connection_tries = 0;
+
+	// Send request
+	Serial2.print("AT");
+
+	while(connection_tries < MAX_CONNECTION_TRIES) {
+		uint16_t size = Serial2.available();
+		if (size >= 1) {
+			char buff[128];
+			Serial2.readBytes(buff, size);
+			is_connected = true;
+
+			Serial.println("DEBUG: The BLE module on the host is working normally!");
+			network.POST_log("INFO", "The BLE module on the host is working normally!");
+			return;
+		}
+
+		Serial.println("Try to connect to BLE module");
+		++connection_tries;
+		delay(100);
+	}
+
+	Serial.println("ERROR: Couldn't connect to BLE module on the host: the connection time has expired");
+	network.POST_log("ERROR", "Couldn't connect to BLE module on the host: the connection time has expired");
+	is_connected = false;
 }

@@ -205,7 +205,7 @@ void setup()
 				  network.server_cfg.hub_id);
 
 	// This timer initiates reply to check hub state on the server
-	constexpr uint8_t STATUS_TIMER_SEC = 1;
+	constexpr uint8_t STATUS_TIMER_SEC = 5;
 	constexpr uint32_t STATUS_TIMER_COUNTER = STATUS_TIMER_SEC * 10000;
 	status_timer = timerBegin(0, 8000 - 1, true);
 	timerAttachInterrupt(status_timer, &onStatusTimer, true);
@@ -546,6 +546,7 @@ void ble_data_handler(const std::string& message) {
 		delay(100);
 		network.POST_temp(actual_sensor_params.temp);
 		Serial.println();
+		network.POST_log("INFO", "The temperature and the humidity data has been sent");
 	}
 	else
 	{
@@ -663,6 +664,13 @@ void ble_timeout() {
 
 	is_ble_timeout = false;
 
+	// Check connection between host and BLE module
+	Serial.println("INFO: Check connection between the host and the BLE module");
+	network.POST_log("INFO", "Check connection between the host and the BLE module");
+	ble->check_connection();
+
+	Serial.println("INFO: Restart the BLE timeout timer");
+	network.POST_log("INFO", "Restart the BLE timeout timer");
 	timerRestart(BLE_timeout_timer);
 }
 
