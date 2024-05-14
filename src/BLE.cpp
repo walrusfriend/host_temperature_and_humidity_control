@@ -10,7 +10,10 @@ BLE::BLE() {
 	digitalWrite(power_pin, HIGH);
 	digitalWrite(wakeup_pin, HIGH);
 
-	Serial2.begin(230400); // D17 - TX, D16 - RX
+	// D17 - TX, D16 - RX
+	// Serial2.begin(230400); 
+	// Try to lower the transmission frequency
+	Serial2.begin(9600);
 	// Check BLE connection
 
 	check_connection();
