@@ -53,9 +53,9 @@ public:
 
     String hub_get_endpoint = String("/hub/hub?establishment_id=");
 
-    static const uint8_t hub_id = 11;
-    static const uint8_t sensor_id = 8;
-    static const uint8_t establishment_id = 2;
+    static const uint8_t hub_id = 12;
+    static const uint8_t sensor_id = 9;
+    static const uint8_t establishment_id = 8;
 
     static const uint8_t MAX_WIFI_CONNECTION_TRIES = 5;
 };

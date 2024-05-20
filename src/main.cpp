@@ -124,6 +124,8 @@ hw_timer_t *BLE_timeout_timer;
 bool is_status_tim = false;
 bool is_ble_timeout = false;
 
+std::string ble_input;
+
 void IRAM_ATTR onStatusTimer()
 {
 	is_status_tim = true;
@@ -769,17 +771,35 @@ void check_COM_port()
 
 void check_BLE_port() {
 	if (Serial2.available() >= 1) {
-		char buff[256];
+		// char buff[256];
 
-		uint16_t size = Serial2.available();
-		Serial2.read(buff, size);
+		// uint16_t size = Serial2.available();
+		// Serial2.read(buff, size);
 
-		buff[size] = '\0';
+		// buff[size] = '\0';
 
 		/** TODO: Delete this debug print */
-		Serial.println("\nDEBUG: Data from BLE:");
-		Serial.println(buff);
+		// Serial.println("\nDEBUG: Data from BLE:");
+		// Serial.println(buff);
 
-		parse_message(std::string(buff));
+		// parse_message(std::string(buff));
+
+
+		/** TODO: How to skip OK+xxx messages from BLE? */
+
+		/**
+		 * Read chars one by one and parse a message only 
+		 * if the current sym is '\n'
+		*/
+
+		char sym = Serial2.read();
+
+		ble_input.push_back(sym);
+		
+		if (sym == '\n') {
+			// Parse message
+			parse_message(ble_input);
+			ble_input.clear();
+		}
 	}
 }
