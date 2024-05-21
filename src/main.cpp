@@ -83,6 +83,8 @@ void set_freq_handler(const std::string& message);
 
 void parse_message(const std::string &message);
 
+void BLE_parser(const std::string& message);
+
 void debug(const std::string &debug_info);
 
 bool is_number(const std::string &s);
@@ -104,12 +106,15 @@ static const std::vector<Command> command_list = {
 	Command("off_ble", ble_off_handler),
 	Command("on_ble", ble_on_handler),
 	Command("wakeup_ble", ble_wakeup),
+	Command("set_freq", set_freq_handler)
+};
+
+static const std::vector<Command> ble_command_list = {
 	Command("ble", ble_handler),
 	Command("d:", ble_data_handler),
 	Command("OK", ble_answer_handler),
 	Command("REQ", sensor_freq_request_handler),
-	Command("e:", ble_error_handler),
-	Command("set_freq", set_freq_handler)
+	Command("e:", ble_error_handler)
 };
 
 Network network;
@@ -123,8 +128,6 @@ hw_timer_t *BLE_timeout_timer;
 
 bool is_status_tim = false;
 bool is_ble_timeout = false;
-
-std::string ble_input;
 
 void IRAM_ATTR onStatusTimer()
 {
@@ -604,6 +607,16 @@ void parse_message(const std::string &message)
 	Serial.println("ERROR: Unknown command!");
 }
 
+void BLE_parser(const std::string& message) {
+	/*
+	 * Handle OK command as an exeption
+	 * Other command parse by terminator \n
+	 * Add timeout for the command, like if 
+	 * delay between neighbor char more than
+	 * 1 ms than drop all message
+	*/
+}
+
 #if DEBUG == 1
 void debug(const std::string &debug_info)
 {
@@ -794,12 +807,12 @@ void check_BLE_port() {
 
 		char sym = Serial2.read();
 
-		ble_input.push_back(sym);
+		// ble_input.push_back(sym);
 		
-		if (sym == '\n') {
-			// Parse message
-			parse_message(ble_input);
-			ble_input.clear();
-		}
+		// if (sym == '\n') {
+		// 	// Parse message
+		// 	parse_message(ble_input);
+		// 	ble_input.clear();
+		// }
 	}
 }
