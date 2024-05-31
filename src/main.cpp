@@ -57,6 +57,19 @@ struct Command
 	~Command() {}
 };
 
+struct BLE_Command
+{
+	String name;
+	void(*handler)(const std::string&);
+
+	BLE_Command(String &&command_name, void(*command_handler)(const std::string &))
+		: name(command_name)
+		, handler(command_handler)
+	{}
+
+	~BLE_Command() {}
+};
+
 /**
  * TODO: Split commands by user and sensor or something else
  */
@@ -106,19 +119,21 @@ static const std::vector<Command> command_list = {
 	Command("off_ble", ble_off_handler),
 	Command("on_ble", ble_on_handler),
 	Command("wakeup_ble", ble_wakeup),
+	Command("ble", ble_handler),
 	Command("set_freq", set_freq_handler)
 };
 
-static const std::vector<Command> ble_command_list = {
-	Command("ble", ble_handler),
-	Command("d:", ble_data_handler),
-	Command("OK", ble_answer_handler),
-	Command("REQ", sensor_freq_request_handler),
-	Command("e:", ble_error_handler)
+static const std::vector<BLE_Command> ble_command_list = {
+	BLE_Command("d:", ble_data_handler),
+	BLE_Command("OK", ble_answer_handler),
+	BLE_Command("REQ", sensor_freq_request_handler),
+	BLE_Command("e:", ble_error_handler)
 };
 
 Network network;
 std::unique_ptr<BLE> ble;
+
+String ble_input;
 
 SensorParameters actual_sensor_params;
 UserDefinedParameters user_defined_sensor_params;
@@ -218,7 +233,8 @@ void setup()
 
 	// This timer starts after we send a data to BLE and wait for response
 	// If no response that check BLE connection and reconnect
-	constexpr uint8_t BLE_TIMEOUT_TIMER_SEC = 30;
+	// constexpr uint8_t BLE_TIMEOUT_TIMER_SEC = 30;
+	constexpr uint8_t BLE_TIMEOUT_TIMER_SEC = 180;
 	constexpr uint32_t BLE_TIMEOUT_TIMER_COUNTER = BLE_TIMEOUT_TIMER_SEC * 10000;
 	BLE_timeout_timer = timerBegin(1, 8000 - 1, true);
 	timerAttachInterrupt(BLE_timeout_timer, &onBLEtimeout, true);
@@ -459,11 +475,23 @@ void ble_wakeup(const std::string& message) {
 void ble_data_handler(const std::string& message) {
 	timerRestart(BLE_timeout_timer);
 
+	// Read syms from COM port until \n
+	uint8_t ble_message[15];
+
+	Serial2.readBytes(ble_message, 10);
+
+	std::string new_ble_message((char*)ble_message);
+
 	Serial.println("DEBUG: In BLE data handler function");
+
+	/** TODO: Delete me */
+	Serial.println((char*)ble_message);
 	
 	// Extract temp value
-	auto start_temp_pos = message.find('t');
-	auto end_temp_pos = message.find('h');
+	auto start_temp_pos = new_ble_message.find('t');
+	auto end_temp_pos = new_ble_message.find('h');
+	auto end_hum_pos = new_ble_message.find('b');
+	auto end_bat_pos = new_ble_message.find('\n');
 
 	if (start_temp_pos == std::string::npos)  {
 		Serial.println("ERROR: Couldn't find the start position of the temperature value in BLE message!");
@@ -477,7 +505,7 @@ void ble_data_handler(const std::string& message) {
 		return;
 	}
 
-	String str_parsed_temp = message.substr(start_temp_pos + 1, end_temp_pos - start_temp_pos - 1).c_str();
+	String str_parsed_temp = new_ble_message.substr(start_temp_pos + 1, end_temp_pos - start_temp_pos - 1).c_str();
 
 	if (str_parsed_temp.length() == 0) {
 		Serial.println("ERROR: Temp string size is 0!");
@@ -493,7 +521,6 @@ void ble_data_handler(const std::string& message) {
 
 	// Extract hum value
 	auto start_hum_pos = end_temp_pos;
-	auto end_hum_pos = message.size();
 
 	if (start_hum_pos == std::string::npos)  {
 		Serial.println("ERROR: Couldn't find the start position of the humidity value in BLE message!");
@@ -501,7 +528,7 @@ void ble_data_handler(const std::string& message) {
 		return;
 	}
 
-	String str_parsed_hum = message.substr(start_hum_pos + 1, end_hum_pos - start_hum_pos - 1).c_str();
+	String str_parsed_hum = new_ble_message.substr(start_hum_pos + 1, end_hum_pos - start_hum_pos - 1).c_str();
 
 	if (str_parsed_hum.length() == 0) {
 		Serial.println("ERROR: Hum string size is 0!");
@@ -515,8 +542,32 @@ void ble_data_handler(const std::string& message) {
 	Serial.print("DEBUG: Parsed int hum value from string hum: ");
 	Serial.println(parsed_hum);
 
+	// Extract battery value
+	auto start_bat_pos = end_hum_pos;
+
+	if (start_bat_pos == std::string::npos) {
+		Serial.println("ERROR: Couldn't find the start position of the battery charge value in BLE message!");
+		network.POST_log("ERROR", "Couldn't find the start position of the battery charge value in BLE message from sensor!");
+		return;
+	}
+
+	String str_parsed_bat = new_ble_message.substr(start_bat_pos + 1, end_bat_pos - start_bat_pos - 1).c_str();
+
+	if (str_parsed_bat.length() == 0) {
+		Serial.println("ERROR: Bat string size is 0!");
+		return;
+	}
+
+	Serial.print("DEBUG: Parsed string bat from original message: ");
+	Serial.println(str_parsed_bat);
+
+	int parsed_bat = str_parsed_bat.toInt();
+	Serial.print("DEBUG: Parsed int bat value from string bat: ");
+	Serial.println(parsed_bat);
+
 	actual_sensor_params.temp = parsed_temp;
 	actual_sensor_params.hum = parsed_hum;
+	actual_sensor_params.battery_charge = parsed_bat;
 
 	uint8_t humidity_window_value = (user_defined_sensor_params.hum_max - 
 						  user_defined_sensor_params.hum_min) * 0.2;
@@ -807,12 +858,31 @@ void check_BLE_port() {
 
 		char sym = Serial2.read();
 
-		// ble_input.push_back(sym);
-		
-		// if (sym == '\n') {
-		// 	// Parse message
-		// 	parse_message(ble_input);
-		// 	ble_input.clear();
-		// }
+		ble_input += sym;
+
+		/**
+		 * Если команда начинается с текущего сообщения, то проверяем совпадение
+		 * размера
+		 * Если совпадает и размер, то выполняем команду, если размер меньше,
+		 * то продолжаем
+		 * Если не было ни одного совпадения, то очищаем строку
+		*/
+
+		bool is_ble_command_overlap = false;
+
+		for (const BLE_Command& command : ble_command_list) {
+			if (command.name.startsWith(ble_input)) {
+				is_ble_command_overlap = true;
+
+				if (command.name == ble_input) {
+					command.handler("");
+					ble_input.clear();
+				}
+			}
+		}
+
+		if (is_ble_command_overlap == false) {
+			ble_input.clear();
+		}
 	}
 }
