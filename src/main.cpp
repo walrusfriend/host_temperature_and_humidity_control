@@ -726,6 +726,10 @@ void status_tim_function()
 	if ((WiFi.status() == WL_CONNECTED))
 	{
 		Serial.println("DEBUG: On status handler");
+		
+		Serial.println("Try to get schedule");
+		network.GET_schedule();
+
 		network.GET_hub(user_defined_sensor_params);
 		Serial.println();
 		network.POST_log("INFO", "A GET HUB request has been sent");
@@ -819,6 +823,7 @@ void connect_to_wifi()
 
 	if (is_connection_successful)
 	{
+		/** TODO: проверяем всегда пустой указатель, нужно погуглить, как там подключаться по https */
 		if (network.client)
 			network.client->setInsecure();
 		else

@@ -2,6 +2,8 @@
 
 #include <string>
 
+/** TODO: Добавить проверки во всех json (см. доку) */
+
 extern hw_timer_t *status_timer;
 extern hw_timer_t *sensor_timer;
 
@@ -164,6 +166,65 @@ void Network::POST_hum(const uint8_t& humidity_value) {
 	else
 	{
 		Serial.printf("ERROR: POST_hum() - HTTPS ERROR: %d\n", httpCode);
+	}
+
+	https.end();
+}
+
+void Network::GET_schedule() {
+	/** TODO: Сделать общий json, а не инициализировать в каждой функции */
+	StaticJsonDocument<1024> reply;
+
+	bool status = https.begin(server_cfg.url + get_schedule_endpoint + String(hub_id));
+
+	if(status == false) {
+		Serial.println("ERROR: GET_schedule() - Couldn't start https session!");
+		https.end();
+		return;
+	}
+
+	int httpCode = https.GET();
+
+	if (httpCode > 0)
+	{
+		String &&payload = https.getString();
+		// Serial.printf("HTTP Status code: %d\n", httpCode);
+
+		DeserializationError error = deserializeJson(reply, payload);
+
+		if (error)
+		{
+			Serial.printf("ERROR: GET_hub() - Deserialization error: %d!\n", error);
+			return;
+		}
+
+		size_t nesting_level = reply.nesting();
+		size_t reply_size = reply.size();
+
+		Serial.println("INFO: GET schedule:");
+
+		for (uint8_t i = 0; i < reply_size; ++i) {
+			JsonObject root = reply[i];
+			JsonArray days = root["day"];
+
+			String day_list;
+
+			for (auto day : days)
+				day_list += String(day.as<int>());
+
+			Serial.printf("Print values with id %d\n"
+			              "\tstart_time: %s\n"
+						  "\tstop_time: %s\n"
+						  "\tdays: %s\n\n",
+						  root["id"].as<int>(),
+						  root["start_time"].as<String>(),
+						  root["stop_time"].as<String>(),
+						  day_list);
+			
+		}
+	}
+	else {
+		Serial.printf("ERROR: GET_hub() - HTTPS ERROR: %d\n", httpCode);
 	}
 
 	https.end();

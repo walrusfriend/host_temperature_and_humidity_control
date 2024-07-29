@@ -33,6 +33,8 @@ public:
     void POST_log(const std::string_view& tag, const std::string_view& log_string);
     void POST_temp(const uint8_t& temperature_value);
     void POST_hum(const uint8_t& humidity_value);
+    
+    void GET_schedule();
     void GET_hub(UserDefinedParameters& params);
 
     WiFi_Config wifi_cfg;
@@ -51,6 +53,7 @@ public:
     String hum_endpoint = String("/hub/humidity");
     String log_endpoint = String("/hub/log");
 
+    String get_schedule_endpoint = String("/hub/schedule?hub_id=");
     String hub_get_endpoint = String("/hub/hub?establishment_id=");
 
     static const uint8_t hub_id = 12;
