@@ -1,14 +1,19 @@
+#define DEBUG 1
+#define ONLY_WIFI 1
+
 #include <algorithm>
 #include <time.h>
 
 #include <EEPROM.h>
 
 #include "main.h"
+
+#if ONLY_WIFI == 0
 #include "BLE.h"
+#endif
+
 #include "Network.h"
 #include "RelayController.h"
-
-#define DEBUG 1
 
 /**
  * TODO:
@@ -27,6 +32,8 @@
  * - Нужно уменьшить время ожидания BLE до разрыва соединения, а то он думает, 
  * что соединение ещё есть и не даёт подключиться датчику после перезагрузки
  * или датчик должен отправлять метку разрыва сообщения с хостом BLE
+ * 
+ * - Create COM port class (maybe)
  */
 
 const uint8_t HUMIDITY_SENSOR_ACCURACY = 2;
@@ -38,17 +45,21 @@ void compare_hum();
 
 void status_tim_function();
 void sensor_tim_function();
-void ble_timeout();
 void connect_to_wifi();
-void connect_to_BLE();
 void check_COM_port();
+
+#if ONLY_WIFI == 0
+void ble_timeout();
+void connect_to_BLE();
 void check_BLE_port();
+#endif
 
 struct Command
 {
 	std::string name;
 	void(*handler)(const std::string&);
 
+	/** TODO: Replace string with string_view */
 	Command(std::string &&command_name, void(*command_handler)(const std::string &))
 		: name(command_name)
 		, handler(command_handler)
@@ -57,6 +68,7 @@ struct Command
 	~Command() {}
 };
 
+#if ONLY_WIFI == 0
 struct BLE_Command
 {
 	String name;
@@ -69,6 +81,7 @@ struct BLE_Command
 
 	~BLE_Command() {}
 };
+#endif
 
 /**
  * TODO: Split commands by user and sensor or something else
@@ -84,6 +97,8 @@ void set_hub_id_handler(const std::string &message);
 void set_sensor_id_handler(const std::string &message);
 void set_url_handler(const std::string &message);
 void set_establishment_id_handler(const std::string &message);
+
+#if ONLY_WIFI == 0
 void ble_handler(const std::string& message);
 void ble_off_handler(const std::string& message);
 void ble_on_handler(const std::string& message);
@@ -92,11 +107,14 @@ void ble_data_handler(const std::string& message);
 void ble_answer_handler(const std::string& message);
 void sensor_freq_request_handler(const std::string& message);
 void ble_error_handler(const std::string& message);
+#endif
 void set_freq_handler(const std::string& message);
 
 void parse_message(const std::string &message);
 
+#if ONLY_WIFI == 0
 void BLE_parser(const std::string& message);
+#endif
 
 void debug(const std::string &debug_info);
 
@@ -116,43 +134,50 @@ static const std::vector<Command> command_list = {
 	Command("set_sensor_id", set_sensor_id_handler),
 	Command("set_url", set_url_handler),
 	Command("set_establishment_id", set_establishment_id_handler),
+	#if ONLY_WIFI == 0
 	Command("off_ble", ble_off_handler),
 	Command("on_ble", ble_on_handler),
 	Command("wakeup_ble", ble_wakeup),
 	Command("ble", ble_handler),
+	#endif
 	Command("set_freq", set_freq_handler)
 };
 
+#if ONLY_WIFI == 0
 static const std::vector<BLE_Command> ble_command_list = {
 	BLE_Command("d:", ble_data_handler),
 	BLE_Command("OK", ble_answer_handler),
 	BLE_Command("REQ", sensor_freq_request_handler),
 	BLE_Command("e:", ble_error_handler)
 };
+#endif
 
 Network network;
-std::unique_ptr<BLE> ble;
 
+#if ONLY_WIFI == 0
+std::unique_ptr<BLE> ble;
 String ble_input;
+hw_timer_t *BLE_timeout_timer;
+bool is_ble_timeout = false;
+#endif
 
 SensorParameters actual_sensor_params;
 UserDefinedParameters user_defined_sensor_params;
 
 hw_timer_t *status_timer;
-hw_timer_t *BLE_timeout_timer;
-
 bool is_status_tim = false;
-bool is_ble_timeout = false;
 
 void IRAM_ATTR onStatusTimer()
 {
 	is_status_tim = true;
 }
 
+#if ONLY_WIFI == 0
 void IRAM_ATTR onBLEtimeout()
 {
 	is_ble_timeout = true;
 }
+#endif
 
 void setup()
 {
@@ -231,6 +256,7 @@ void setup()
 	timerAttachInterrupt(status_timer, &onStatusTimer, true);
 	timerAlarmWrite(status_timer, STATUS_TIMER_COUNTER - 1, true);
 
+#if ONLY_WIFI == 0
 	// This timer starts after we send a data to BLE and wait for response
 	// If no response that check BLE connection and reconnect
 	// constexpr uint8_t BLE_TIMEOUT_TIMER_SEC = 30;
@@ -240,12 +266,13 @@ void setup()
 	timerAttachInterrupt(BLE_timeout_timer, &onBLEtimeout, true);
 	timerAlarmWrite(BLE_timeout_timer, BLE_TIMEOUT_TIMER_COUNTER - 1, true);
 	timerAlarmEnable(BLE_timeout_timer);
+	ble = std::make_unique<BLE>();
+#endif
 
 	pinMode(RelayController::COMPRESSOR_RELAY, INPUT);
 	pinMode(LED_BUILTIN, OUTPUT);
 
 	connect_to_wifi();
-	ble = std::make_unique<BLE>();
 }
 
 void loop()
@@ -256,11 +283,13 @@ void loop()
 	if (is_status_tim)
 		status_tim_function();
 
+#if ONLY_WIFI == 0
 	if (is_ble_timeout)
 		ble_timeout();
 
-	check_COM_port();
 	check_BLE_port();
+#endif
+	check_COM_port();
 }
 
 void compare_hum()
@@ -429,6 +458,7 @@ void set_establishment_id_handler(const std::string &message)
 {
 }
 
+#if ONLY_WIFI == 0
 void ble_handler(const std::string& message) {
 	Serial.println("DEBUG: BLE handler");
 
@@ -638,6 +668,7 @@ void ble_error_handler(const std::string& message) {
 		network.POST_log("ERROR", "The humidity sensor is not available!");
 	}
 }
+#endif
 
 void set_freq_handler(const std::string& message) {
 	// freq 
@@ -658,6 +689,8 @@ void parse_message(const std::string &message)
 	Serial.println("ERROR: Unknown command!");
 }
 
+#if ONLY_WIFI == 0
+/** TODO: Это что вообще такое? */
 void BLE_parser(const std::string& message) {
 	/*
 	 * Handle OK command as an exeption
@@ -667,6 +700,7 @@ void BLE_parser(const std::string& message) {
 	 * 1 ms than drop all message
 	*/
 }
+#endif
 
 #if DEBUG == 1
 void debug(const std::string &debug_info)
@@ -717,6 +751,7 @@ void sensor_tim_function()
 	// timerAlarmEnable(BLE_timeout_timer);
 }
 
+#if ONLY_WIFI == 0
 void ble_timeout() {
 	/** TODO: Нужно выключать реле наглухо до тех пор, пока не возобновится связь по BLE
 	 * Например, можно выставлять флаг, который будет запрещать изменять состояние реле
@@ -739,6 +774,7 @@ void ble_timeout() {
 	network.POST_log("INFO", "Restart the BLE timeout timer");
 	timerRestart(BLE_timeout_timer);
 }
+#endif
 
 void connect_to_wifi()
 {
@@ -799,6 +835,7 @@ void connect_to_wifi()
 	}
 }
 
+#if ONLY_WIFI == 0
 void connect_to_BLE()
 {
 	// Serial.println("INFO: Try to connect to BLE");
@@ -820,6 +857,7 @@ void connect_to_BLE()
 
 	// Serial.println("INFO: BLE connected!");
 }
+#endif
 
 void check_COM_port()
 {
@@ -833,6 +871,7 @@ void check_COM_port()
 	}
 }
 
+#if ONLY_WIFI == 0
 void check_BLE_port() {
 	if (Serial2.available() >= 1) {
 		// char buff[256];
@@ -886,3 +925,4 @@ void check_BLE_port() {
 		}
 	}
 }
+#endif
