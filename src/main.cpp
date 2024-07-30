@@ -1,12 +1,12 @@
 #define DEBUG 1
-#define ONLY_WIFI 1
+#define ONLY_WIFI 0
+
+#include "main.h"
 
 #include <algorithm>
 #include <time.h>
 
 #include <EEPROM.h>
-
-#include "main.h"
 
 #if ONLY_WIFI == 0
 #include "BLE.h"
@@ -44,13 +44,11 @@ bool is_relay_controlled_by_user_through_COM = false;
 void compare_hum();
 
 void status_tim_function();
-void sensor_tim_function();
 void connect_to_wifi();
 void check_COM_port();
 
 #if ONLY_WIFI == 0
 void ble_timeout();
-void connect_to_BLE();
 void check_BLE_port();
 #endif
 
@@ -87,12 +85,7 @@ struct BLE_Command
  * TODO: Split commands by user and sensor or something else
  */
 // Command handler function list
-void relay_handler(const std::string &message);
-void start_handler(const std::string &message);
-void stop_handler(const std::string &message);
 void set_wifi_handler(const std::string &message);
-void wifi_connect_handler(const std::string &message);
-void data_request_handler(const std::string &message);
 void set_hub_id_handler(const std::string &message);
 void set_sensor_id_handler(const std::string &message);
 void set_url_handler(const std::string &message);
@@ -100,21 +93,13 @@ void set_establishment_id_handler(const std::string &message);
 
 #if ONLY_WIFI == 0
 void ble_handler(const std::string& message);
-void ble_off_handler(const std::string& message);
-void ble_on_handler(const std::string& message);
-void ble_wakeup(const std::string& message);
 void ble_data_handler(const std::string& message);
 void ble_answer_handler(const std::string& message);
 void sensor_freq_request_handler(const std::string& message);
 void ble_error_handler(const std::string& message);
 #endif
-void set_freq_handler(const std::string& message);
 
 void parse_message(const std::string &message);
-
-#if ONLY_WIFI == 0
-void BLE_parser(const std::string& message);
-#endif
 
 void debug(const std::string &debug_info);
 
@@ -124,23 +109,14 @@ bool is_number(const std::string &s);
 // началом другой команды, вроде get и get_hub. Команда get просто будет
 // вызываться раньше.
 static const std::vector<Command> command_list = {
-	Command("relay", relay_handler),
-	Command("start", start_handler),
-	Command("stop", stop_handler),
 	Command("set_wifi", set_wifi_handler),
-	Command("wifi_connect", wifi_connect_handler),
-	Command("data_request", data_request_handler),
 	Command("set_hub_id", set_hub_id_handler),
 	Command("set_sensor_id", set_sensor_id_handler),
 	Command("set_url", set_url_handler),
 	Command("set_establishment_id", set_establishment_id_handler),
 	#if ONLY_WIFI == 0
-	Command("off_ble", ble_off_handler),
-	Command("on_ble", ble_on_handler),
-	Command("wakeup_ble", ble_wakeup),
 	Command("ble", ble_handler),
 	#endif
-	Command("set_freq", set_freq_handler)
 };
 
 #if ONLY_WIFI == 0
@@ -229,12 +205,12 @@ void setup()
 	/* Replace pass with '*' */
 	std::string hidden_pass = network.wifi_cfg.pass;
 
-	if (hidden_pass.size() < 1) {
-		Serial.println("ERROR: Password size must be greater than 1!");
+	if (hidden_pass.size() < 8) {
+		Serial.println("ERROR: Password size must be greater or equal to 8!");
 		/** TODO: Handler error */
 	}
 
-	for (uint8_t i = 0; i < hidden_pass.size() - 2; ++i)
+	for (uint8_t i = 0; i < hidden_pass.size(); ++i)
 		hidden_pass[i] = '*';
 
 	/** TODO: Create full load log */
@@ -328,49 +304,8 @@ void compare_hum()
 	}
 }
 
-/* Manual remote compressor relay control (legacy) */
-void relay_handler(const std::string &message)
-{
-	std::string tmp = message.substr(6, message.size() - 6);
-
-	Serial.printf("%s\n", tmp.c_str());
-
-	if (tmp == "on")
-	{
-		is_compressor_start = true;
-		is_relay_controlled_by_user_through_COM = true;
-		Serial.println("Set the relay status to ON\n");
-		network.POST_log("INFO", "Relay has been manually switched by COM port to ON state");
-	}
-	else if (tmp == "off")
-	{
-		is_compressor_start = false;
-		is_relay_controlled_by_user_through_COM = true;
-		Serial.println("Set the relay status to OFF\n");
-		network.POST_log("INFO", "Relay has been manually switched by COM port to OFF state");
-	}
-	else if (tmp == "auto")
-	{
-		is_relay_controlled_by_user_through_COM = false;
-		Serial.println("The relay change its state automatically!\n");
-		network.POST_log("INFO", "Relay has been manually switched by COM port to AUTO state");
-	}
-	else
-	{
-		Serial.println("ERROR: Unknown argument!\n");
-	}
-}
-
-void start_handler(const std::string &message)
-{
-	timerAlarmEnable(status_timer);
-}
-
-void stop_handler(const std::string &message)
-{
-	timerAlarmDisable(status_timer);
-}
-
+/// @brief Change the SSID and password of the network we are connecting to
+/// @param message The handler arguments - expecting "SSID password"
 void set_wifi_handler(const std::string &message)
 {
 	Serial.println(message.c_str());
@@ -429,18 +364,6 @@ void set_wifi_handler(const std::string &message)
 	network.do_wifi_connect = true;
 }
 
-void wifi_connect_handler(const std::string &message)
-{
-	network.do_wifi_connect = true;
-}
-
-void data_request_handler(const std::string &message)
-{
-	/** TODO: Check if we connected to BLE server */
-
-	// ble.p_serial_characteristic->writeValue("d");
-}
-
 /** TODO: Дописать тело функций */
 void set_hub_id_handler(const std::string &message)
 {
@@ -459,6 +382,9 @@ void set_establishment_id_handler(const std::string &message)
 }
 
 #if ONLY_WIFI == 0
+/**
+ * This function takes words from the COM port and send them to BLE
+ */
 void ble_handler(const std::string& message) {
 	Serial.println("DEBUG: BLE handler");
 
@@ -488,18 +414,6 @@ void ble_handler(const std::string& message) {
 	args.push_back(str.substr(initialPos, str.size() - initialPos));
 
 	Serial2.print(args[1].c_str());
-}
-
-void ble_off_handler(const std::string& message) {
-	// ble->power(false);
-}
-
-void ble_on_handler(const std::string& message) {
-	ble->power(true);
-}
-
-void ble_wakeup(const std::string& message) {
-	ble->wake_up();
 }
 
 void ble_data_handler(const std::string& message) {
@@ -670,10 +584,6 @@ void ble_error_handler(const std::string& message) {
 }
 #endif
 
-void set_freq_handler(const std::string& message) {
-	// freq 
-}
-
 /** TODO: This will be work only if the message starts with a command*/
 void parse_message(const std::string &message)
 {
@@ -688,19 +598,6 @@ void parse_message(const std::string &message)
 
 	Serial.println("ERROR: Unknown command!");
 }
-
-#if ONLY_WIFI == 0
-/** TODO: Это что вообще такое? */
-void BLE_parser(const std::string& message) {
-	/*
-	 * Handle OK command as an exeption
-	 * Other command parse by terminator \n
-	 * Add timeout for the command, like if 
-	 * delay between neighbor char more than
-	 * 1 ms than drop all message
-	*/
-}
-#endif
 
 #if DEBUG == 1
 void debug(const std::string &debug_info)
@@ -743,16 +640,6 @@ void status_tim_function()
 	compare_hum();
 
 	is_status_tim = false;
-}
-
-void sensor_tim_function()
-{
-	// Serial.println("INFO: BLE check");
-	// Serial.println("INFO: On BLE send handler");
-	// // ble.p_serial_characteristic->writeValue("d");
-	// is_sensor_tim = false;
-
-	// timerAlarmEnable(BLE_timeout_timer);
 }
 
 #if ONLY_WIFI == 0
@@ -835,30 +722,6 @@ void connect_to_wifi()
 		network.POST_log("INFO", "Wi-Fi connected");
 	}
 }
-
-#if ONLY_WIFI == 0
-void connect_to_BLE()
-{
-	// Serial.println("INFO: Try to connect to BLE");
-	// uint8_t number_of_unsuccessful_connections = 0;
-	// while (ble.connectToServer() == false)
-	// {
-	// 	++number_of_unsuccessful_connections;
-
-	// 	if (number_of_unsuccessful_connections > 10)
-	// 	{
-	// 		Serial.println("ERROR: Failed to connect to the BLE server!");
-	// 		break;
-	// 	}
-
-	// 	delay(100);
-	// };
-	// Serial.println();
-	// ble.do_BLE_connect = false;
-
-	// Serial.println("INFO: BLE connected!");
-}
-#endif
 
 void check_COM_port()
 {
