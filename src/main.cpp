@@ -1,12 +1,10 @@
 #define DEBUG 1
-#define ONLY_WIFI 0
+#define ONLY_WIFI 1
 
 #include "main.h"
 
 #include <algorithm>
 #include <time.h>
-
-#include <EEPROM.h>
 
 #if ONLY_WIFI == 0
 #include "BLE.h"
@@ -44,7 +42,6 @@ bool is_relay_controlled_by_user_through_COM = false;
 void compare_hum();
 
 void status_tim_function();
-void connect_to_wifi();
 void check_COM_port();
 
 #if ONLY_WIFI == 0
@@ -248,13 +245,13 @@ void setup()
 	pinMode(RelayController::COMPRESSOR_RELAY, INPUT);
 	pinMode(LED_BUILTIN, OUTPUT);
 
-	connect_to_wifi();
+	network.connect_to_wifi();
 }
 
 void loop()
 {
 	if (network.do_wifi_connect)
-		connect_to_wifi();
+		network.connect_to_wifi();
 
 	if (is_status_tim)
 		status_tim_function();
@@ -340,28 +337,7 @@ void set_wifi_handler(const std::string &message)
 		return;
 	}
 
-	/** TODO: Add check for too short pass or ssid */
-
-	if (args[1].size() > WIFI_SSID_SIZE) {
-		Serial.printf("ERROR: The SSID size must be less than %d\n", WIFI_SSID_SIZE);
-		return;
-	}
-
-	if (args[2].size() > WIFI_PASS_SIZE) {
-		Serial.printf("ERROR: The password size must be less than %d\n", WIFI_PASS_SIZE);
-		return;
-	}
-
-	Serial.printf("INFO: Parsed SSID: %s and password: %s\n", args[1].c_str(), args[2].c_str());
-
-	strcpy(network.wifi_cfg.ssid, args[1].c_str());
-	strcpy(network.wifi_cfg.pass, args[2].c_str());
-
-	EEPROM.put(1, network.wifi_cfg);
-	EEPROM.commit();
-
-	WiFi.reconnect();
-	network.do_wifi_connect = true;
+	network.change_wifi_cfg(args[1], args[2]);
 }
 
 /** TODO: Дописать тело функций */
@@ -619,22 +595,8 @@ bool is_number(const std::string &s)
 void status_tim_function()
 {
 	Serial.println("INFO: Current status check");
-	// Check the current connection status
-	if ((WiFi.status() == WL_CONNECTED))
-	{
-		Serial.println("DEBUG: On status handler");
-		
-		Serial.println("Try to get schedule");
-		network.GET_schedule();
 
-		network.GET_hub(user_defined_sensor_params);
-		Serial.println();
-		network.POST_log("INFO", "A GET HUB request has been sent");
-	}
-	else
-	{
-		network.handle_disconnect();
-	}
+	network.get_status(user_defined_sensor_params);
 
 	// Check an atmosphere params and the user input and control the compressor relay
 	compare_hum();
@@ -666,62 +628,6 @@ void ble_timeout() {
 	timerRestart(BLE_timeout_timer);
 }
 #endif
-
-void connect_to_wifi()
-{
-	/** TODO: Reconnect does not working */
-	Serial.printf("INFO: Try to connect to Wi-Fi with ssid: %s and password: %s\n",
-				  network.wifi_cfg.ssid, network.wifi_cfg.pass);
-
-	if (WiFi.mode(WIFI_STA)) {
-		Serial.println("INFO: Mode changed successfully!");
-	}
-	else {
-		Serial.println("ERROR: Mode changing failed!");
-	}
-
-	uint8_t status = WiFi.begin(network.wifi_cfg.ssid, network.wifi_cfg.pass);
-
-	Serial.printf("INFO: Initial status code - %d\n", status);
-
-	uint8_t wifi_connection_tries = 0;
-	bool is_connection_successful = true;
-
-	while (WiFi.status() != WL_CONNECTED)
-	{
-		Serial.printf("INFO: Wi-Fi status code - %d\n", status);
-
-		if (wifi_connection_tries >= Network::MAX_WIFI_CONNECTION_TRIES)
-		{
-			Serial.printf("\nERROR: Couldn't connect to Wi-Fi network with ssid: %s and password: %s!\n"
-						  "Please restart the device or set other Wi-Fi SSID and password!\n",
-						  network.wifi_cfg.ssid, network.wifi_cfg.pass);
-			wifi_connection_tries = 0;
-			is_connection_successful = false;
-			network.handle_disconnect();
-			break;
-		}
-
-		++wifi_connection_tries;
-
-		Serial.printf(".");
-		delay(1000);
-	};
-
-	if (is_connection_successful)
-	{
-		network.client.setInsecure();
-
-		Serial.println("INFO: Wi-Fi connected");
-		Serial.println();
-
-		network.do_wifi_connect = false;
-
-		timerAlarmEnable(status_timer);
-
-		network.POST_log("INFO", "Wi-Fi connected");
-	}
-}
 
 void check_COM_port()
 {

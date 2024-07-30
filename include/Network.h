@@ -6,6 +6,8 @@
 #include <ArduinoJson.h>
 #include <WiFiClientSecure.h>
 
+#include <EEPROM.h>
+
 constexpr uint8_t WIFI_SSID_SIZE = 16;
 constexpr uint8_t WIFI_PASS_SIZE = 16;
 
@@ -27,7 +29,10 @@ public:
     Network();
     ~Network();
 
+    void connect_to_wifi();
     void handle_disconnect();
+    void get_status(UserDefinedParameters& params);
+    void change_wifi_cfg(const std::string_view& SSID, const std::string_view& password);
 
     // REST API functions
     void POST_log(const std::string_view& tag, const std::string_view& log_string);
@@ -45,6 +50,7 @@ public:
     bool is_wifi_settings_initialized = false;
     bool is_wifi_connection_establish = false;
 
+private:
     HTTPClient https;
     WiFiClientSecure client;
 
