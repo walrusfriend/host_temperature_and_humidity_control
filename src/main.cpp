@@ -823,11 +823,7 @@ void connect_to_wifi()
 
 	if (is_connection_successful)
 	{
-		/** TODO: проверяем всегда пустой указатель, нужно погуглить, как там подключаться по https */
-		if (network.client)
-			network.client->setInsecure();
-		else
-			Serial.printf("ERROR: [HTTPS] Unable to connect\n");
+		network.client.setInsecure();
 
 		Serial.println("INFO: Wi-Fi connected");
 		Serial.println();

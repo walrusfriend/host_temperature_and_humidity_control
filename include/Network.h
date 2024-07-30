@@ -46,7 +46,7 @@ public:
     bool is_wifi_connection_establish = false;
 
     HTTPClient https;
-    WiFiClientSecure *client;
+    WiFiClientSecure client;
 
     // Endpoints
     String temp_endpoint = String("/hub/temperature");
