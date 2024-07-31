@@ -12,6 +12,8 @@
 
 #include "Network.h"
 #include "RelayController.h"
+#include "Calendar.h"
+
 
 /**
  * TODO:
@@ -42,6 +44,7 @@ bool is_relay_controlled_by_user_through_COM = false;
 void compare_hum();
 
 void status_tim_function();
+void ntp_tim_function();
 void check_COM_port();
 
 #if ONLY_WIFI == 0
@@ -152,6 +155,13 @@ void IRAM_ATTR onBLEtimeout()
 }
 #endif
 
+hw_timer_t *ntp_timer;
+bool is_ntp_tim = false;
+
+void IRAM_ATTR onNtpTimer() {
+	is_ntp_tim = true;
+}
+
 void setup()
 {
 	Serial.begin(115200);
@@ -242,27 +252,41 @@ void setup()
 	ble = std::make_unique<BLE>();
 #endif
 
+	constexpr uint8_t NTP_TIMER_SEC = 10;
+	constexpr uint32_t NTP_TIMER_COUNTER = NTP_TIMER_SEC * 10000;
+	ntp_timer = timerBegin(2, 8000 - 1, true);
+	timerAttachInterrupt(ntp_timer, &onNtpTimer, true);
+	timerAlarmWrite(ntp_timer, NTP_TIMER_COUNTER, true);
+	timerAlarmEnable(ntp_timer);
+
 	pinMode(RelayController::COMPRESSOR_RELAY, INPUT);
 	pinMode(LED_BUILTIN, OUTPUT);
+
+	// Calendar calendar;
 
 	network.connect_to_wifi();
 }
 
 void loop()
 {
-	if (network.do_wifi_connect)
-		network.connect_to_wifi();
+	// network.ntp_client.update();
 
-	if (is_status_tim)
-		status_tim_function();
+// 	if (network.do_wifi_connect)
+// 		network.connect_to_wifi();
 
-#if ONLY_WIFI == 0
-	if (is_ble_timeout)
-		ble_timeout();
+// 	if (is_status_tim)
+// 		status_tim_function();
 
-	check_BLE_port();
-#endif
-	check_COM_port();
+	if (is_ntp_tim)
+		ntp_tim_function();
+
+// #if ONLY_WIFI == 0
+// 	if (is_ble_timeout)
+// 		ble_timeout();
+
+// 	check_BLE_port();
+// #endif
+// 	check_COM_port();
 }
 
 void compare_hum()
@@ -602,6 +626,63 @@ void status_tim_function()
 	compare_hum();
 
 	is_status_tim = false;
+}
+
+void ntp_tim_function() {
+	// Sync the time
+	// network.ntp_client.update();
+	Serial.printf("NTP server updated:\n"
+					  "\tis update: %d\n"
+					  "\tis received: %d\n"
+					  "\tday: %d\n"
+					  "\thour: %d\n"
+					  "\tmin: %d\n"
+					  "\tsec: %d\n"
+					  "\tformatted time: %s\n\n",
+					  network.ntp_client.update(),
+					  network.ntp_client.isTimeSet(),
+					  network.ntp_client.getDay(),
+					  network.ntp_client.getHours(),
+					  network.ntp_client.getMinutes(),
+					  network.ntp_client.getSeconds(),
+					  network.ntp_client.getFormattedTime());
+
+	// Update schedule
+	network.update_schedule(Calendar::list);
+
+	Serial.println("Schedule updated - here's calendar list after updating:");
+	for (auto unit : Calendar::list) {
+		String day_list;
+		for (auto day : unit.days)
+			day_list += String(day) + ' ';
+
+		Serial.printf("\tid: %d\n"
+					  "\tstart time: %d:%d\n"
+					  "\tstop time: %d:%d\n"
+					  "\tdays: %s\n",
+					  unit.id,
+					  unit.start.hour, unit.start.min,
+					  unit.stop.hour, unit.stop.min,
+					  day_list.c_str());
+	}
+
+
+	Calendar::Time current_time { network.ntp_client.getHours(), network.ntp_client.getMinutes() };
+	uint8_t current_day = network.ntp_client.getDay();
+
+	bool is_time_in_schedule = false;
+	for (auto unit : Calendar::list) {
+		if (unit.consist(current_time) and unit.days[current_day]) {
+			is_time_in_schedule = true;
+		}
+	}
+
+	if (is_time_in_schedule)
+		Serial.println("The current time is included in the schedule");
+	else
+		Serial.println("The current time is NOT included in the schedule");
+
+	is_ntp_tim = false;
 }
 
 #if ONLY_WIFI == 0

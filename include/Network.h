@@ -5,8 +5,12 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <WiFiClientSecure.h>
-
 #include <EEPROM.h>
+
+#include <WiFiUdp.h>
+#include <NTPClient.h>
+
+#include "Calendar.h"
 
 constexpr uint8_t WIFI_SSID_SIZE = 16;
 constexpr uint8_t WIFI_PASS_SIZE = 16;
@@ -33,13 +37,14 @@ public:
     void handle_disconnect();
     void get_status(UserDefinedParameters& params);
     void change_wifi_cfg(const std::string_view& SSID, const std::string_view& password);
+    void update_schedule(std::vector<Calendar::Unit>& list);
 
     // REST API functions
     void POST_log(const std::string_view& tag, const std::string_view& log_string);
     void POST_temp(const uint8_t& temperature_value);
     void POST_hum(const uint8_t& humidity_value);
     
-    void GET_schedule();
+    void GET_schedule(std::vector<Calendar::Unit>& list);
     void GET_hub(UserDefinedParameters& params);
 
     WiFi_Config wifi_cfg;
@@ -67,4 +72,9 @@ private:
     static const uint8_t establishment_id = 8;
 
     static const uint8_t MAX_WIFI_CONNECTION_TRIES = 5;
+
+public:
+    // NTP
+    WiFiUDP ntpUDP;
+    NTPClient ntp_client = {ntpUDP, "europe.pool.ntp.org", 10800, 30000};
 };

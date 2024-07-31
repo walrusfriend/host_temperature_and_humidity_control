@@ -47,8 +47,6 @@ void Network::connect_to_wifi() {
 		}
 
 		++wifi_connection_tries;
-
-		Serial.printf(".");
 		delay(1000);
 	};
 
@@ -60,6 +58,9 @@ void Network::connect_to_wifi() {
 		Serial.println();
 
 		do_wifi_connect = false;
+
+		// Connect to NTP server
+		ntp_client.begin();
 
 		timerAlarmEnable(status_timer);
 
@@ -79,6 +80,8 @@ void Network::handle_disconnect() {
 	else {
 		Serial.println("INFO: Disconnection failed!");
 	}
+
+	ntp_client.end();
 }
 
 void Network::get_status(UserDefinedParameters& params) {
@@ -86,13 +89,10 @@ void Network::get_status(UserDefinedParameters& params) {
 	if ((WiFi.status() == WL_CONNECTED))
 	{
 		Serial.println("DEBUG: On status handler");
-		
-		Serial.println("Try to get schedule");
-		GET_schedule();
 
 		GET_hub(params);
 		Serial.println();
-		POST_log("INFO", "A GET HUB request has been sent");
+		// POST_log("INFO", "A GET HUB request has been sent");
 	}
 	else
 	{
@@ -126,6 +126,10 @@ void Network::change_wifi_cfg(const std::string_view& SSID, const std::string_vi
 	do_wifi_connect = true;
 }
 
+void Network::update_schedule(std::vector<Calendar::Unit>& list) {
+	GET_schedule(list);
+}
+
 void Network::POST_log(const std::string_view& tag, const std::string_view& log_string) {
 	StaticJsonDocument<128> query;
 
@@ -155,6 +159,7 @@ void Network::POST_log(const std::string_view& tag, const std::string_view& log_
 
 		if (error) {
 			Serial.println("ERROR: POST_log() - Deserialization error!");
+			https.end();
 			return;
 		}
 
@@ -204,6 +209,7 @@ void Network::POST_temp(const uint8_t& temperature_value) {
 
 		if (error) {
 			Serial.println("ERROR: POST_temp() - Deserialization error!");
+			https.end();
 			return;
 		}
 
@@ -252,6 +258,7 @@ void Network::POST_hum(const uint8_t& humidity_value) {
 
 		if (error) {
 			Serial.println("ERROR: POST_hum() -Deserialization error!");
+			https.end();
 			return;
 		}
 
@@ -271,9 +278,8 @@ void Network::POST_hum(const uint8_t& humidity_value) {
 	https.end();
 }
 
-void Network::GET_schedule() {
-	/** TODO: Сделать общий json, а не инициализировать в каждой функции */
-	StaticJsonDocument<1024> reply;
+void Network::GET_schedule(std::vector<Calendar::Unit>& list) {
+	StaticJsonDocument<2048> reply;
 
 	bool status = https.begin(server_cfg.url + get_schedule_endpoint + String(hub_id));
 
@@ -294,31 +300,51 @@ void Network::GET_schedule() {
 
 		if (error)
 		{
-			Serial.printf("ERROR: GET_hub() - Deserialization error: %d!\n", error);
+			Serial.printf("ERROR: GET_schedule() - Deserialization error: %d!\n", error);
+			https.end();
 			return;
 		}
 
 		size_t nesting_level = reply.nesting();
 		size_t reply_size = reply.size();
 
-		Serial.println("INFO: GET schedule:");
+		if (reply_size == 0) {
+			Serial.println("ERROR: GET_schedule() - reply size is 0!");
+			https.end();
+			return;
+		}
+
+		list.clear();
+
+		Serial.println("INFO: GET_schedule:");
 
 		for (uint8_t i = 0; i < reply_size; ++i) {
 			JsonObject root = reply[i];
 			JsonArray days = root["day"];
 
-			String day_list;
+			Calendar::Unit unit;
+			unit.id = root["id"].as<int>();
+			unit.start.from_string(root["start_time"].as<std::string_view>());
+			unit.stop.from_string(root["stop_time"].as<std::string_view>());
 
+			for (auto day : days) {
+				unit.days[day.as<int>()] = true;
+			}
+
+			list.emplace_back(unit);
+
+			// Debug output
+			String day_list;
 			for (auto day : days)
-				day_list += String(day.as<int>());
+				day_list += String(day.as<int>()) + ' ';
 
 			Serial.printf("Print values with id %d\n"
-			              "\tstart_time: %s\n"
-						  "\tstop_time: %s\n"
+			              "\tstart_time: %d:%d\n"
+						  "\tstop_time: %d:%d\n"
 						  "\tdays: %s\n\n",
-						  root["id"].as<int>(),
-						  root["start_time"].as<String>(),
-						  root["stop_time"].as<String>(),
+						  unit.id,
+						  unit.start.hour, unit.start.min,
+						  unit.stop.hour, unit.stop.min,
 						  day_list);
 			
 		}
@@ -354,6 +380,7 @@ void Network::GET_hub(UserDefinedParameters& user_defined_params) {
 		if (error)
 		{
 			Serial.printf("ERROR: GET_hub() - Deserialization error: %d!\n", error);
+			https.end();
 			return;
 		}
 
@@ -365,6 +392,7 @@ void Network::GET_hub(UserDefinedParameters& user_defined_params) {
 		if (tmp_hum_max < tmp_hum_min) {
 			/** TODO: Send a log to a server */
 			Serial.println("ERROR: GET_hub() - A max hum value must be higher than a min hum value!");
+			https.end();
 			return;
 		}
 
